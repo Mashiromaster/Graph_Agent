@@ -1,5 +1,21 @@
 from .adapters import OpenAICompatibleModel
-from .events import EventType, RunEvent, verify_event_chain
+from .controller import GraphController, InMemoryGraphStore, NodeFactory, NodeRunner
+from .controller_events import ControllerEvent, verify_controller_event_chain
+from .controller_models import (
+    BudgetSnapshot,
+    ControllerPolicy,
+    DecisionState,
+    EdgeRecord,
+    EdgeType,
+    ExecutionRecord,
+    ExecutionState,
+    NodeRecord,
+    NodeState,
+    ProposalDecision,
+    RunSnapshot,
+    RunStatus,
+)
+from .events import EventType, RunEvent, result_binding_hash, verify_event_chain
 from .model import ModelAdapter, ScriptedModel
 from .memory import InMemorySessionMemory, SessionMemory
 from .models import (
@@ -33,9 +49,17 @@ __all__ = [
     "AgentResult",
     "AgentSpec",
     "ContextPacket",
+    "BudgetSnapshot",
+    "ControllerEvent",
+    "ControllerPolicy",
+    "DecisionState",
+    "EdgeRecord",
+    "EdgeType",
     "EventType",
     "FunctionTool",
+    "GraphController",
     "InMemorySessionMemory",
+    "InMemoryGraphStore",
     "Message",
     "MessageProposal",
     "MessageRole",
@@ -43,11 +67,17 @@ __all__ = [
     "ModelRequest",
     "ModelResponse",
     "NodeBudget",
+    "NodeFactory",
+    "NodeRecord",
+    "NodeRunner",
     "NodeError",
     "NodePolicy",
     "NodeStatus",
+    "NodeState",
     "OpenAICompatibleModel",
     "RunEvent",
+    "RunSnapshot",
+    "RunStatus",
     "ScriptedModel",
     "SessionMemory",
     "SkipContextProposal",
@@ -57,5 +87,10 @@ __all__ = [
     "ToolCall",
     "ToolDefinition",
     "Usage",
+    "ExecutionRecord",
+    "ExecutionState",
+    "ProposalDecision",
+    "verify_controller_event_chain",
     "verify_event_chain",
+    "result_binding_hash",
 ]

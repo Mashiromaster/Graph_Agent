@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Iterable
 
-from .events import EventRecorder, EventType
+from .events import EventRecorder, EventType, result_binding_hash
 from .graph_tools import GRAPH_TOOL_DEFINITIONS, ProposalCollector
 from .memory import SessionMemory
 from .model import ModelAdapter
@@ -139,7 +139,20 @@ class AgentNode:
                     recorder.record(
                         EventType.NODE_COMPLETED,
                         output_value=response.content,
-                        metadata={"turns": turn, "tool_calls": tool_calls_used},
+                        metadata={
+                            "turns": turn,
+                            "tool_calls": tool_calls_used,
+                            "result_hash": result_binding_hash(
+                                node_id=self.spec.identity.node_id,
+                                status=NodeStatus.COMPLETED.value,
+                                output=response.content,
+                                input_tokens=usage.input_tokens,
+                                output_tokens=usage.output_tokens,
+                                spawn_proposals=collector.spawns,
+                                message_proposals=collector.messages,
+                                skip_context_proposals=collector.skip_contexts,
+                            ),
+                        },
                     )
                     if self._memory is not None and agent_input.session_id is not None:
                         await self._memory.append(
@@ -293,7 +306,21 @@ class AgentNode:
         recorder.record(
             event_type,
             output_value=message,
-            metadata={"code": code, "retryable": retryable},
+            metadata={
+                "code": code,
+                "retryable": retryable,
+                "result_hash": result_binding_hash(
+                    node_id=self.spec.identity.node_id,
+                    status=NodeStatus.FAILED.value,
+                    output=None,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    spawn_proposals=collector.spawns,
+                    message_proposals=collector.messages,
+                    skip_context_proposals=collector.skip_contexts,
+                    error=NodeError(code=code, message=message, retryable=retryable),
+                ),
+            },
         )
         return AgentResult(
             node_id=self.spec.identity.node_id,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Any, Iterable, Mapping
 
@@ -110,6 +110,38 @@ def verify_event_chain(events: Iterable[RunEvent]) -> bool:
             return False
         previous_hash = event.event_hash
     return True
+
+
+def result_binding_hash(
+    *,
+    node_id: str,
+    status: str,
+    output: str | None,
+    input_tokens: int,
+    output_tokens: int,
+    spawn_proposals: Iterable[Any] = (),
+    message_proposals: Iterable[Any] = (),
+    skip_context_proposals: Iterable[Any] = (),
+    error: Any = None,
+) -> str:
+    """Bind the terminal event to every result field accepted by a controller."""
+
+    def serialize(values: Iterable[Any]) -> list[Any]:
+        return [asdict(value) for value in values]
+
+    return _value_hash(
+        {
+            "error": asdict(error) if error is not None else None,
+            "input_tokens": input_tokens,
+            "message_proposals": serialize(message_proposals),
+            "node_id": node_id,
+            "output": output,
+            "output_tokens": output_tokens,
+            "skip_context_proposals": serialize(skip_context_proposals),
+            "spawn_proposals": serialize(spawn_proposals),
+            "status": status,
+        }
+    )
 
 
 def _value_hash(value: Any) -> str:
