@@ -1,6 +1,6 @@
 # Graph Agent Node
 
-一个框架无关、可嵌入图运行时的通用 Agent 节点 MVP。它把单个 Agent 的模型调用、工具循环、会话记忆、资源预算和图操作意图封装为稳定协议；图的创建、调度与持久化仍由外部 Graph Controller 掌控。
+一个框架无关的动态图 Agent MVP。它同时提供通用 `AgentNode` 与单进程 `GraphController`：节点负责模型调用、工具循环、会话记忆和结构化图提议；Controller 负责审批、预算、拓扑、并发调度和可验证恢复。
 
 当前实现借鉴了 `awesome-llm-apps` 中的轻量 Agent、上下文、会话、agents-as-tools、并行编排与信任门控模式，但没有把某个具体 Agent SDK 固化为核心依赖。
 
@@ -15,6 +15,10 @@
 - 子节点代数、数量、工具权限和累计预算份额门控；
 - 输入/输出摘要化的 SHA-256 事件哈希链，可验证但不记录明文；
 - 结构化失败结果和离线 CLI 演示。
+- super-step 并发调度、确定性结果归并和同一 run 的 single-flight 保护；
+- 父子边、DAG 依赖边，以及不触发执行的 message/skip-context 边；
+- Controller 级节点/边/深度/并发/Token 预算和工具权限门控；
+- 严格 JSON checkpoint、语义不变量验证和无副作用快照恢复。
 
 ```mermaid
 flowchart LR
@@ -48,6 +52,38 @@ PYTHONPATH=src python3 -m graph_agent.cli demo
 ```
 
 演示完全离线，不需要 API Key。输出包含计算结果、一个子 Agent 派生提议以及事件链验证结果。
+
+运行完整 Controller 演示：
+
+```bash
+PYTHONPATH=src python3 -m graph_agent.cli controller-demo
+```
+
+## Graph Controller
+
+```python
+controller = GraphController(
+    factory=my_node_factory,
+    policy=ControllerPolicy(
+        max_nodes=64,
+        max_edges=256,
+        max_generation=4,
+        max_total_tokens=64_000,
+        max_concurrency=4,
+    ),
+)
+run_id = await controller.create_run(
+    root=root_node,
+    agent_input=AgentInput(task="完成任务并在必要时派生验证节点"),
+    allowed_tool_names=("search", "calculator"),
+    run_id="job-001",
+)
+snapshot = await controller.run_until_idle(run_id)
+checkpoint_json = controller.checkpoint(run_id)
+restored = GraphController.replay_checkpoint(checkpoint_json)
+```
+
+Controller 在每个 super-step 冻结当前 ready frontier，用 semaphore 并发执行，再按稳定调度序号统一归并。新派生的节点只会进入下一 step；`message` 和 `skip_context` 是被动上下文边，不会隐式唤醒目标节点。详细状态机与安全边界见 [GRAPH_CONTROLLER.md](GRAPH_CONTROLLER.md)。
 
 ## 创建通用节点
 
@@ -124,7 +160,7 @@ model = OpenAICompatibleModel(
 - `events`：只保留内容摘要与元数据的可验证事件链；
 - `error`：失败代码、脱敏消息和是否可重试。
 
-建议 Graph Controller 对提议执行以下流程：
+当前 Graph Controller 对提议执行以下流程：
 
 1. 验证提议对应的事件链和发起节点身份；
 2. 合并节点本地策略与图级全局策略；
@@ -155,6 +191,9 @@ python3 -m coverage report
 - 工具异常与节点异常对模型返回脱敏信息，避免泄漏密钥或内部路径；
 - API Key 不进入事件链，且在适配器对象的 `repr` 中隐藏；
 - 事件链用于防篡改检测，不等同于数字签名；多机部署应追加 KMS/HMAC 签名；
+- Controller 会在摄取边界重新校验结果 schema，并用终态事件中的 `result_hash` 绑定 output、usage 与全部 proposals；
+- message/skip-context 的明文不会进入 Controller checkpoint，只保存内容 SHA-256；
+- checkpoint 采用严格 JSON，拒绝重复键、NaN/Infinity 和不可能的图/预算状态；
 - 自定义工具仍需自行实现参数范围、网络目的地、文件路径和副作用审批。
 - 超时可以取消 Agent 协程，但无法回滚已经开始的外部副作用；有写操作的工具应使用幂等键或补偿事务。
 
@@ -167,11 +206,12 @@ awesome-llm-apps/      上游参考项目源码快照
 Graph_Agent_开源调研与可行性评估.md
 THIRD_PARTY_NOTICES.md
 SECURITY_REVIEW.md
+GRAPH_CONTROLLER.md
 ```
 
 ## 当前边界与下一阶段
 
-本仓库交付的是“通用节点”，还不是完整的动态图调度器。下一阶段优先实现 Graph Controller、持久化图存储、全局预算账本、循环检测、并发调度与回放；待这些基线稳定后，再加入基于运行反馈的边权更新或可学习拓扑，避免一开始把工程可控性和训练问题混在一起。
+当前已交付单进程、内存态的 Graph Controller MVP。下一阶段优先增加 SQLite barrier checkpoint/resume、人工审批 pause/resume、all/any fan-in 规则和可控循环；待这些基线稳定后，再加入 weighted quorum、分布式 worker 或可学习拓扑。
 
 ## 许可证与归属
 

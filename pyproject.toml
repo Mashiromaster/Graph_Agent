@@ -33,6 +33,8 @@ include = [
   "/tests",
   "/examples",
   "/README.md",
+  "/GRAPH_CONTROLLER.md",
+  "/SECURITY_REVIEW.md",
   "/THIRD_PARTY_NOTICES.md",
   "/Graph_Agent_开源调研与可行性评估.md",
   "/pyproject.toml",
