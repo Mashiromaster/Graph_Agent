@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "graph-agent-node"
+version = "0.1.0"
+description = "Framework-independent universal Agent node for dynamic agent graphs"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [
+  { name = "Graph Agent contributors" },
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "coverage>=7.6",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+]
+
+[project.scripts]
+graph-agent = "graph_agent.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/graph_agent"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/examples",
+  "/README.md",
+  "/THIRD_PARTY_NOTICES.md",
+  "/Graph_Agent_开源调研与可行性评估.md",
+  "/pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["graph_agent"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

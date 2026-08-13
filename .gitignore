@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.coverage
+htmlcov/
+.pytest_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+.env
+.DS_Store
+
+# Local upstream reference snapshot; source and revision are recorded in
+# THIRD_PARTY_NOTICES.md. Keep it outside the product repository history.
+awesome-llm-apps/
