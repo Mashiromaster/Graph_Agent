@@ -14,11 +14,12 @@
 - 三种图操作提议：派生子 Agent、定向消息、跨代上下文请求；
 - 子节点代数、数量、工具权限和累计预算份额门控；
 - 输入/输出摘要化的 SHA-256 事件哈希链，可验证但不记录明文；
-- 结构化失败结果和离线 CLI 演示。
+- 结构化失败结果和离线 CLI 演示；
 - super-step 并发调度、确定性结果归并和同一 run 的 single-flight 保护；
 - 父子边、DAG 依赖边，以及不触发执行的 message/skip-context 边；
 - Controller 级节点/边/深度/并发/Token 预算和工具权限门控；
-- 严格 JSON checkpoint、语义不变量验证和无副作用快照恢复。
+- 严格 JSON checkpoint、语义不变量验证和无副作用快照恢复；
+- Codex 风格的本地 Graph Agent Studio，以多轮任务对话为主界面，并把每轮真实 Controller 执行图作为可审计的辅助视图。
 
 ```mermaid
 flowchart LR
@@ -58,6 +59,20 @@ PYTHONPATH=src python3 -m graph_agent.cli demo
 ```bash
 PYTHONPATH=src python3 -m graph_agent.cli controller-demo
 ```
+
+启动本地可视化工作台：
+
+```bash
+PYTHONPATH=src python3 -m graph_agent.cli ui
+```
+
+安装后也可以直接运行 `graph-agent ui`。服务默认只监听 `127.0.0.1:8765` 并自动打开浏览器；可用 `--port` 更换端口，或用 `--no-browser` 禁止自动打开。
+
+进入页面后点击“配置 DeepSeek API”，填入自己的 API Key，并选择 `deepseek-v4-flash` 或 `deepseek-v4-pro`。主界面是任务对话：同一个左侧任务可连续进行多轮交流，按 `Enter` 发送、`Shift + Enter` 换行；每次提交都会让真实 DeepSeek 主 Agent 执行当前任务，并由它自主判断是否通过 `graph__propose_spawn` 派生最多两个真实子 Agent。点击左侧“执行图”或每轮回复下方的“查看执行图”，可以检查该轮动态拓扑、节点输出、实际 Token、预算结算和 Controller 哈希链。调用固定使用 DeepSeek 官方 `https://api.deepseek.com/chat/completions`，会消耗对应账户额度。
+
+当前 DeepSeek 图工具循环显式使用非思考模式。DeepSeek V4 的思考模式要求在工具调用后的每个请求中完整回传 `reasoning_content`，而通用 `ModelResponse` 协议尚未承载该字段；禁用思考模式可以保持多轮工具调用正确且避免远端 400。接口与模型约束以 [DeepSeek Chat Completion](https://api-docs.deepseek.com/api/create-chat-completion) 和 [DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode) 为准。
+
+API Key 和页面任务列表只驻留于当前页面的 JavaScript 内存；API Key 随单次请求发送到回环地址上的本机服务，对话历史经过严格的角色、长度和总量校验后作为不可信上下文传给 Agent。密钥不会进入 `localStorage`、对话历史、节点事件、Controller checkpoint、导出快照或服务日志。关闭或刷新页面即清除，界面也提供显式“清除密钥”操作。请只在可信本机上运行工作台。
 
 ## Graph Controller
 
@@ -194,6 +209,8 @@ python3 -m coverage report
 - Controller 会在摄取边界重新校验结果 schema，并用终态事件中的 `result_hash` 绑定 output、usage 与全部 proposals；
 - message/skip-context 的明文不会进入 Controller checkpoint，只保存内容 SHA-256；
 - checkpoint 采用严格 JSON，拒绝重复键、NaN/Infinity 和不可能的图/预算状态；
+- Web 工作台默认只监听回环地址，使用严格 JSON 请求边界、请求大小限制和 self-only CSP；
+- DeepSeek 集成使用固定 HTTPS 端点和模型白名单，拒绝跨站浏览器请求，并限制并发执行、响应体大小、超时和最大输出 Token；
 - 自定义工具仍需自行实现参数范围、网络目的地、文件路径和副作用审批。
 - 超时可以取消 Agent 协程，但无法回滚已经开始的外部副作用；有写操作的工具应使用幂等键或补偿事务。
 
@@ -201,6 +218,7 @@ python3 -m coverage report
 
 ```text
 src/graph_agent/       通用节点运行时
+src/graph_agent/web_ui/ 本地 Graph Agent Studio 前端
 tests/                 离线单元与端到端测试
 awesome-llm-apps/      上游参考项目源码快照
 Graph_Agent_开源调研与可行性评估.md

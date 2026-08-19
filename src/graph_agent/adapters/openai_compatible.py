@@ -19,6 +19,9 @@ from ..models import (
 )
 
 
+_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+
+
 class JSONTransport(Protocol):
     async def post_json(
         self,
@@ -64,7 +67,10 @@ class UrllibJSONTransport:
         try:
             opener = urllib.request.build_opener(_NoRedirectHandler())
             with opener.open(request, timeout=timeout_seconds) as response:
-                parsed = json.loads(response.read().decode("utf-8"))
+                raw_response = response.read(_MAX_RESPONSE_BYTES + 1)
+                if len(raw_response) > _MAX_RESPONSE_BYTES:
+                    raise ModelTransportError("Model endpoint response was too large")
+                parsed = json.loads(raw_response.decode("utf-8"))
         except urllib.error.HTTPError as exc:
             raise ModelTransportError(f"Model endpoint returned HTTP {exc.code}") from exc
         except urllib.error.URLError as exc:
@@ -84,6 +90,8 @@ class OpenAICompatibleModel:
     api_key: str | None = field(default=None, repr=False)
     base_url: str = "https://api.openai.com/v1"
     timeout_seconds: float = 60.0
+    max_output_tokens: int | None = None
+    extra_body: Mapping[str, Any] = field(default_factory=dict, repr=False)
     transport: JSONTransport | None = None
 
     def __post_init__(self) -> None:
@@ -93,6 +101,28 @@ class OpenAICompatibleModel:
         _validate_base_url(self.base_url)
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if self.max_output_tokens is not None and (
+            type(self.max_output_tokens) is not int or self.max_output_tokens < 1
+        ):
+            raise ValueError("max_output_tokens must be a positive integer")
+        if not isinstance(self.extra_body, Mapping) or any(
+            type(key) is not str for key in self.extra_body
+        ):
+            raise ValueError("extra_body must be a JSON object with string keys")
+        reserved = {"model", "messages", "tools", "tool_choice", "max_tokens"}
+        if reserved.intersection(self.extra_body):
+            raise ValueError("extra_body must not override standard request fields")
+        try:
+            encoded_extra = json.dumps(
+                dict(self.extra_body),
+                allow_nan=False,
+                separators=(",", ":"),
+            )
+            if len(encoded_extra.encode("utf-8")) > 16_384:
+                raise ValueError("extra_body is too large")
+            self.extra_body = json.loads(encoded_extra)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("extra_body must contain strict JSON values") from exc
         if self.api_key is None and _is_openai_api(self.base_url):
             self.api_key = os.getenv("OPENAI_API_KEY")
         if self.transport is None:
@@ -105,6 +135,7 @@ class OpenAICompatibleModel:
                 {"role": "system", "content": request.instructions},
                 *[_message_payload(message) for message in request.messages],
             ],
+            **dict(self.extra_body),
         }
         if request.tools:
             payload["tools"] = [
@@ -118,7 +149,8 @@ class OpenAICompatibleModel:
                 }
                 for tool in request.tools
             ]
-            payload["tool_choice"] = "auto"
+        if self.max_output_tokens is not None:
+            payload["max_tokens"] = self.max_output_tokens
 
         headers = {"Content-Type": "application/json"}
         if self.api_key:

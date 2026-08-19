@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f7f7f5" />
+    <meta name="description" content="本地运行、支持多轮任务对话和执行图审计的 Graph Agent。" />
+    <title>Graph Agent Studio</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar" aria-label="主导航">
+        <div class="brand-row">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <div>
+            <strong>Graph Agent</strong>
+            <span>Studio</span>
+          </div>
+          <button class="icon-button sidebar-close" id="sidebarClose" aria-label="关闭导航">×</button>
+        </div>
+
+        <button class="new-run" id="newRunButton">
+          <span aria-hidden="true">＋</span>
+          新对话
+          <kbd>⌘ N</kbd>
+        </button>
+
+        <nav class="nav-list" aria-label="工作区">
+          <button class="nav-item" data-view="graph" id="graphNavButton">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="7" r="2.5"/><circle cx="12" cy="17" r="2.5"/><path d="m9 8.3 2 6M15 8.3l-2 6M9.5 7h5"/></svg>
+            执行图
+          </button>
+          <button class="nav-item" data-view="policies">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.8 2.9 8.3 7 10 4.1-1.7 7-5.2 7-10V6z"/><path d="m9 12 2 2 4-5"/></svg>
+            策略与预算
+          </button>
+          <button class="nav-item" data-view="checkpoints">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"/><path d="M9 3v6h6V3M9 14h6"/></svg>
+            Checkpoints
+          </button>
+        </nav>
+
+        <div class="sidebar-section">
+          <div class="section-label">任务</div>
+          <div class="history-list" id="taskList">
+            <div class="history-empty">新对话会显示在这里</div>
+          </div>
+        </div>
+
+        <div class="sidebar-footer">
+          <span class="avatar">GA</span>
+          <div><strong id="providerSidebarStatus">DeepSeek 未连接</strong><span>密钥仅驻留页面内存</span></div>
+          <span class="health-dot" id="healthDot" title="服务状态"></span>
+        </div>
+      </aside>
+
+      <button class="sidebar-scrim" id="sidebarScrim" aria-label="关闭导航"></button>
+
+      <main class="main-area">
+        <header class="topbar">
+          <div class="title-group">
+            <button class="icon-button menu-button" id="menuButton" aria-label="打开导航">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+            </button>
+            <div>
+              <h1 id="pageTitle">新对话</h1>
+              <p><span class="live-dot"></span><span id="runStateLabel">准备对话</span></p>
+            </div>
+          </div>
+          <div class="top-actions" id="topActions" hidden>
+            <button class="secondary-button" id="exportButton" aria-label="导出快照" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M5 19h14"/></svg>
+              <span>导出快照</span>
+            </button>
+            <button class="icon-button" id="resetButton" aria-label="重置画布" title="重置画布">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6M4 4v4.6h4.6"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <section class="workspace chat-workspace" id="chatView" aria-label="任务对话">
+          <div class="chat-scroll" id="chatScroll">
+            <div class="chat-empty" id="chatEmpty">
+              <div class="empty-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
+              <h2>开始一个 Graph Agent 任务</h2>
+              <p>直接描述目标。主 Agent 会回答，并在需要时自主派生专家；执行图只是过程的可视化。</p>
+            </div>
+            <div class="message-list" id="messageList" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <section class="workspace graph-workspace" id="graphView" aria-label="Agent 执行图" hidden>
+          <div class="summary-strip" aria-label="运行摘要">
+            <div><span>节点</span><strong id="nodeMetric">—</strong></div>
+            <div><span>边</span><strong id="edgeMetric">—</strong></div>
+            <div><span>已提交 Token</span><strong id="tokenMetric">—</strong></div>
+            <div><span>事件</span><strong id="eventMetric">—</strong></div>
+            <div class="summary-status"><span>结果</span><strong id="statusMetric">未运行</strong></div>
+          </div>
+
+          <div class="workbench-grid">
+            <section class="canvas-panel" aria-labelledby="canvasTitle">
+              <div class="panel-heading">
+                <div>
+                  <h2 id="canvasTitle">执行图</h2>
+                  <p id="canvasSubtitle">输入任务，观察 Agent 如何派生与协作</p>
+                </div>
+                <div class="legend" aria-label="图例">
+                  <span><i class="edge-swatch spawn"></i>派生</span>
+                  <span><i class="edge-swatch dependency"></i>依赖</span>
+                </div>
+              </div>
+              <div class="graph-viewport" id="graphViewport">
+                <div class="empty-canvas" id="emptyCanvas">
+                  <div class="empty-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
+                  <strong>准备构建 Agent 图</strong>
+                  <p>提交一个目标，Controller 会生成真实节点、边和预算记录。</p>
+                </div>
+                <div class="graph-stage" id="graphStage" hidden>
+                  <svg class="edge-layer" id="edgeLayer" aria-hidden="true"></svg>
+                  <div class="node-layer" id="nodeLayer"></div>
+                </div>
+              </div>
+            </section>
+
+            <aside class="inspector-panel" aria-labelledby="inspectorTitle">
+              <div class="panel-heading compact">
+                <div><h2 id="inspectorTitle">节点检查器</h2><p>选择画布中的节点</p></div>
+                <span class="inspector-status" id="inspectorStatus">—</span>
+              </div>
+              <div class="inspector-empty" id="inspectorEmpty">
+                <div class="mini-node" aria-hidden="true"></div>
+                <p>点击一个 Agent 节点查看身份、预算、权限和执行状态。</p>
+              </div>
+              <div class="inspector-content" id="inspectorContent" hidden>
+                <div class="agent-heading">
+                  <span class="agent-avatar" id="agentAvatar">OR</span>
+                  <div><strong id="agentName">Agent</strong><span id="agentRole">role</span></div>
+                </div>
+                <dl class="detail-list">
+                  <div><dt>Node ID</dt><dd id="agentId">—</dd></div>
+                  <div><dt>Generation</dt><dd id="agentGeneration">—</dd></div>
+                  <div><dt>Priority</dt><dd id="agentPriority">—</dd></div>
+                  <div><dt>Token allocation</dt><dd id="agentBudget">—</dd></div>
+                  <div><dt>Allowed tools</dt><dd id="agentTools">—</dd></div>
+                </dl>
+                <div class="agent-output">
+                  <div class="agent-output-heading">
+                    <strong>Agent 输出</strong>
+                    <span id="agentUsage">—</span>
+                  </div>
+                  <p id="agentOutput">等待节点完成</p>
+                </div>
+              </div>
+              <div class="event-section">
+                <div class="event-title"><strong>Controller 事件</strong><span id="chainBadge">未验证</span></div>
+                <ol class="event-list" id="eventList"><li>等待运行事件</li></ol>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="composer-wrap" aria-label="发送消息">
+          <form class="composer" id="taskForm">
+            <label class="sr-only" for="taskInput">给 Graph Agent 发送消息</label>
+            <textarea id="taskInput" rows="2" maxlength="2000" placeholder="给 Graph Agent 一个任务…"></textarea>
+            <div class="composer-footer">
+              <div class="composer-meta">
+                <span class="mode-chip"><span class="shield-icon">◇</span>受控执行</span>
+                <button class="provider-chip" id="providerButton" type="button">
+                  <span class="provider-dot" id="providerDot"></span>
+                  <span id="providerLabel">配置 DeepSeek API</span>
+                </button>
+                <span class="model-label" id="providerModelLabel">deepseek-v4-flash</span>
+              </div>
+              <div class="composer-actions">
+                <span class="shortcut" title="Shift + Enter 换行">Enter</span>
+                <button class="run-button" id="runButton" type="submit" aria-label="发送消息">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg>
+                </button>
+              </div>
+            </div>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="provider-dialog" id="providerDialog" aria-labelledby="providerDialogTitle">
+      <form class="provider-form" id="providerForm">
+        <div class="dialog-heading">
+          <div>
+            <span class="dialog-kicker">Live provider</span>
+            <h2 id="providerDialogTitle">连接 DeepSeek</h2>
+          </div>
+          <button class="dialog-close" id="providerDialogClose" type="button" aria-label="关闭">×</button>
+        </div>
+        <p class="dialog-copy">API Key 只保存在当前页面内存，并仅发送到本机 Graph Agent 服务；不会写入浏览器存储、日志、事件链或快照。</p>
+        <input class="sr-only" type="text" name="username" value="deepseek-api" autocomplete="username" tabindex="-1" aria-hidden="true" />
+        <label class="field-label" for="apiKeyInput">DeepSeek API Key</label>
+        <div class="secret-field">
+          <input id="apiKeyInput" name="api-key" type="password" maxlength="1024" autocomplete="new-password" spellcheck="false" placeholder="sk-…" />
+          <button id="toggleApiKey" type="button">显示</button>
+        </div>
+        <label class="field-label" for="modelSelect">模型</label>
+        <select id="modelSelect" name="model">
+          <option value="deepseek-v4-flash">DeepSeek V4 Flash · 更快</option>
+          <option value="deepseek-v4-pro">DeepSeek V4 Pro · 更强</option>
+        </select>
+        <div class="provider-note">
+          <span aria-hidden="true">↗</span>
+          <p>调用固定发送到 <code>https://api.deepseek.com</code>。当前使用非思考模式保证图工具多轮兼容，并会消耗你的 DeepSeek 账户额度。</p>
+        </div>
+        <div class="dialog-actions">
+          <button class="clear-key-button" id="clearApiKey" type="button">清除密钥</button>
+          <button class="save-provider-button" type="submit">保存到本次会话</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

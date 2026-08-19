@@ -22,6 +22,7 @@ from .models import (
 )
 from .node import AgentNode
 from .tools import FunctionTool
+from .web import serve as serve_ui
 
 
 def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> int:
@@ -30,6 +31,14 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
     subparsers.add_parser("demo", help="Run a deterministic offline node demo")
     subparsers.add_parser(
         "controller-demo", help="Run an offline dynamic graph controller demo"
+    )
+    ui_parser = subparsers.add_parser("ui", help="Launch Graph Agent Studio")
+    ui_parser.add_argument(
+        "--host", default="127.0.0.1", choices=("127.0.0.1", "localhost")
+    )
+    ui_parser.add_argument("--port", default=8765, type=int)
+    ui_parser.add_argument(
+        "--no-browser", action="store_true", help="Do not open the browser automatically"
     )
     args = parser.parse_args(argv)
     output = stdout or sys.stdout
@@ -44,6 +53,11 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
         json.dump(result, output, ensure_ascii=False, indent=2)
         output.write("\n")
         return 0 if result["status"] == "succeeded" else 1
+    if args.command == "ui":
+        if not 0 <= args.port <= 65_535:
+            parser.error("--port must be between 0 and 65535")
+        serve_ui(host=args.host, port=args.port, open_browser=not args.no_browser)
+        return 0
     return 2
 
 

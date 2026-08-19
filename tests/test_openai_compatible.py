@@ -12,6 +12,10 @@ from graph_agent import (
     ToolCall,
     ToolDefinition,
 )
+from graph_agent.adapters.openai_compatible import (
+    ModelTransportError,
+    UrllibJSONTransport,
+)
 
 
 class FakeTransport:
@@ -66,6 +70,7 @@ class OpenAICompatibleModelTests(unittest.IsolatedAsyncioTestCase):
         model = OpenAICompatibleModel(
             model="example-model",
             api_key="secret-value",
+            max_output_tokens=1_024,
             transport=transport,
         )
         self.assertNotIn("secret-value", repr(model))
@@ -116,6 +121,8 @@ class OpenAICompatibleModelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("call-1", messages[3]["tool_call_id"])
         self.assertEqual("user", messages[4]["role"])
         self.assertEqual("function", call["payload"]["tools"][0]["type"])
+        self.assertEqual(1_024, call["payload"]["max_tokens"])
+        self.assertNotIn("tool_choice", call["payload"])
         self.assertEqual("lookup", response.tool_calls[0].name)
         self.assertEqual({"query": "graph agents"}, response.tool_calls[0].arguments)
         self.assertEqual(25, response.usage.total_tokens)
@@ -136,6 +143,54 @@ class OpenAICompatibleModelTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIsNone(model.api_key)
+
+    def test_rejects_invalid_max_output_tokens(self) -> None:
+        with self.assertRaisesRegex(ValueError, "max_output_tokens"):
+            OpenAICompatibleModel(model="example-model", max_output_tokens=True)
+
+    def test_extra_body_is_strict_and_cannot_override_request(self) -> None:
+        model = OpenAICompatibleModel(
+            model="example-model",
+            extra_body={"thinking": {"type": "disabled"}},
+        )
+        self.assertNotIn("thinking", repr(model))
+
+        with self.assertRaisesRegex(ValueError, "override"):
+            OpenAICompatibleModel(
+                model="example-model",
+                extra_body={"model": "forged"},
+            )
+        with self.assertRaisesRegex(ValueError, "strict JSON"):
+            OpenAICompatibleModel(
+                model="example-model",
+                extra_body={"temperature": float("nan")},
+            )
+
+    @patch("urllib.request.build_opener")
+    def test_transport_rejects_oversized_response(self, build_opener) -> None:
+        class OversizedResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args) -> None:
+                return None
+
+            def read(self, size: int) -> bytes:
+                return b"x" * size
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                return OversizedResponse()
+
+        build_opener.return_value = FakeOpener()
+
+        with self.assertRaisesRegex(ModelTransportError, "too large"):
+            UrllibJSONTransport()._post_json(
+                url="https://models.example.com/chat/completions",
+                headers={"Content-Type": "application/json"},
+                payload={"model": "example-model"},
+                timeout_seconds=1,
+            )
 
 
 if __name__ == "__main__":
