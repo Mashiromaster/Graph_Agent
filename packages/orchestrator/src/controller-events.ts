@@ -61,7 +61,7 @@ function computeControllerEventHash(fields: HashableControllerFields): string {
  * the raw text, tracking the set of keys seen at each object depth, and throws
  * on any repeat within the same object.
  */
-function assertNoDuplicateKeys(text: string): void {
+export function assertNoDuplicateKeys(text: string): void {
   const stack: Set<string>[] = [];
   let index = 0;
   const length = text.length;

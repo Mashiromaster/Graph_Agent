@@ -89,7 +89,7 @@ describe("GraphController.createRun", () => {
   it("event chain verifies after createRun", async () => {
     const controller = makeController();
     await controller.createRun("run-1", rootSpec("root"), stubRunner, rootInput("root"));
-    const json = controller.checkpoint("run-1");
+    const json = await controller.checkpoint("run-1");
     const events = JSON.parse(json).events;
     expect(verifyControllerEventChain(events)).toBe(true);
     expect(events[0].type).toBe("run_created");

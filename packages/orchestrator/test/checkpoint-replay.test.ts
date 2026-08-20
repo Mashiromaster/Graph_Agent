@@ -36,7 +36,7 @@ async function buildRun(): Promise<{ controller: GraphController; json: string }
   const controller = new GraphController(completingFactory, createControllerPolicy());
   await controller.createRun("run-1", rootSpec("root"), rootRunner, agentInput("root"));
   await controller.runUntilIdle("run-1");
-  return { controller, json: controller.checkpoint("run-1") };
+  return { controller, json: await controller.checkpoint("run-1") };
 }
 
 describe("checkpoint/replay round trip", () => {
@@ -114,10 +114,21 @@ describe("checkpoint tamper detection", () => {
     const { json } = await buildRun();
     // canonicalJson sorts keys, so the top-level object ends with `...stateDigest":"<hex>"}`.
     // Inject a duplicate top-level "schemaVersion" key just before the final brace
-    // (JSON.parse would silently coalesce; our lexer must reject it).
+    // (JSON.parse would silently coalesce; the full-depth lexer must reject it).
     expect(json.endsWith("}")).toBe(true);
     const tampered = `${json.slice(0, -1)},"schemaVersion":1}`;
-    expect(() => GraphController.replayCheckpoint(tampered)).toThrow(/duplicate top-level key/);
+    expect(() => GraphController.replayCheckpoint(tampered)).toThrow(/duplicate key/);
+  });
+
+  it("rejects a duplicate key nested inside events[0] (full-depth)", async () => {
+    const { json } = await buildRun();
+    // Inject a duplicate "sequence" key into the first event object. A shallow
+    // top-level-only scan would miss this; the full-depth checker rejects it.
+    const marker = '"detailJson":';
+    const at = json.indexOf(marker);
+    expect(at).toBeGreaterThan(-1);
+    const tampered = `${json.slice(0, at)}"sequence":0,${json.slice(at)}`;
+    expect(() => GraphController.replayCheckpoint(tampered)).toThrow(/duplicate key/);
   });
 
   it("rejects a wrong schemaVersion", async () => {

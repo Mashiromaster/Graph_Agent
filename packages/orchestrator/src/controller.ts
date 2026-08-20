@@ -55,6 +55,7 @@ import { validateSnapshot } from "./snapshot-validation.js";
 import {
   CONTROLLER_GENESIS_HASH,
   appendControllerEvent,
+  assertNoDuplicateKeys,
   controllerEventDetail,
   createControllerEvent,
   verifyControllerEventChain,
@@ -459,22 +460,27 @@ export class GraphController {
 
   // ── checkpoint ─────────────────────────────────────────────────────────────────
 
-  checkpoint(runId: string): string {
-    const entry = this.require(runId);
-    const events = entry.events;
-    const chainHead =
-      events.length > 0 ? events[events.length - 1]!.eventHash : CONTROLLER_GENESIS_HASH;
-    const stateDigest = sha256(
-      canonicalJson(runSnapshotToDict(snapshotOf(entry.state))),
-    );
-    return canonicalJson({
-      chainHead,
-      eventCount: events.length,
-      events: events.map((event) => ({ ...event })),
-      runId,
-      schemaVersion: CHECKPOINT_SCHEMA_VERSION,
-      stateDigest,
-    });
+  async checkpoint(runId: string): Promise<string> {
+    const release = await this.globalMutex.acquire();
+    try {
+      const entry = this.require(runId);
+      const events = entry.events;
+      const chainHead =
+        events.length > 0 ? events[events.length - 1]!.eventHash : CONTROLLER_GENESIS_HASH;
+      const stateDigest = sha256(
+        canonicalJson(runSnapshotToDict(snapshotOf(entry.state))),
+      );
+      return canonicalJson({
+        chainHead,
+        eventCount: events.length,
+        events: events.map((event) => ({ ...event })),
+        runId,
+        schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+        stateDigest,
+      });
+    } finally {
+      release();
+    }
   }
 
   // ── replay (static, pure) ────────────────────────────────────────────────────
@@ -526,7 +532,9 @@ export class GraphController {
     if (json.length > MAX_CHECKPOINT_BYTES) {
       throw new RangeError("checkpoint exceeds maximum size");
     }
-    assertNoDuplicateTopLevelKeys(json);
+    // 全深度拒绝重复键(复用 controller-events 的词法扫描器):顶层键集的严格性
+    // 由下方的 exact-6-key 检查保证,而 events 里任一对象嵌套的重复键也一并拒绝。
+    assertNoDuplicateKeys(json);
     const parsed = JSON.parse(json) as unknown;
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new SyntaxError("checkpoint must be a JSON object");
@@ -612,57 +620,4 @@ function rebuildEvent(raw: unknown): ControllerEvent {
     throw new SyntaxError("checkpoint event hash mismatch");
   }
   return rebuilt;
-}
-
-/**
- * 拒绝 checkpoint 顶层对象的重复键。JSON.parse 会静默保留重复键的最后一个值,
- * 故须在词法层扫描顶层 `{...}` 的键。仅检查深度为 1 的对象键即可满足 checkpoint
- * 的键集严格性要求(嵌套 events 里的重复键不改变顶层键集判定)。
- */
-function assertNoDuplicateTopLevelKeys(text: string): void {
-  const seen = new Set<string>();
-  let depth = 0;
-  let index = 0;
-  const length = text.length;
-  while (index < length) {
-    const ch = text[index]!;
-    if (ch === '"') {
-      let value = "";
-      index += 1;
-      while (index < length) {
-        const inner = text[index]!;
-        if (inner === "\\") {
-          value += text.slice(index, index + 2);
-          index += 2;
-          continue;
-        }
-        if (inner === '"') {
-          index += 1;
-          break;
-        }
-        value += inner;
-        index += 1;
-      }
-      let look = index;
-      while (
-        look < length &&
-        (text[look] === " " || text[look] === "\t" || text[look] === "\n" || text[look] === "\r")
-      ) {
-        look += 1;
-      }
-      if (text[look] === ":" && depth === 1) {
-        if (seen.has(value)) {
-          throw new SyntaxError(`duplicate top-level key "${value}" in checkpoint`);
-        }
-        seen.add(value);
-      }
-      continue;
-    }
-    if (ch === "{") {
-      depth += 1;
-    } else if (ch === "}") {
-      depth -= 1;
-    }
-    index += 1;
-  }
 }
