@@ -24,3 +24,5 @@ export type {
   ProposalDecision,
   RunSnapshot,
 } from "./graph-models.js";
+export { isSha256Hex, normalizeTools, validateText, validateUnit } from "./validation.js";
+export { terminalResultHash, verifyResultBinding } from "./result-binding.js";
