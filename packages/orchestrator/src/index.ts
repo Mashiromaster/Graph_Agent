@@ -62,3 +62,12 @@ export { validateSnapshot } from "./snapshot-validation.js";
 export { applyMessage, applySkip, applySpawn } from "./mutations.js";
 export { RunnerCancelledError } from "./runner.js";
 export type { AgentSpec, NodeFactory, NodeRunner } from "./runner.js";
+export {
+  blockFailedDependents,
+  cancelClaims,
+  freezeFrontierAndClaim,
+  ingestLocked,
+  settleException,
+  settleRun,
+} from "./scheduler.js";
+export type { Claim } from "./scheduler.js";
