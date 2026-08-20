@@ -56,3 +56,6 @@ export {
   verifyControllerEventChain,
 } from "./controller-events.js";
 export type { ControllerEvent, ControllerEventType } from "./controller-events.js";
+export { createMutableRunState, snapshotOf } from "./mutable-state.js";
+export type { MutableRunState } from "./mutable-state.js";
+export { validateSnapshot } from "./snapshot-validation.js";
