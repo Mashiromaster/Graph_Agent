@@ -55,3 +55,13 @@ export function assertSha256Hex(value: string, label: string): string {
   }
   return value;
 }
+
+export function assertFinitePositive(value: number, label: string): number {
+  if (typeof value !== "number" || typeof value === "boolean") {
+    throw new TypeError(`${label} must be a number`);
+  }
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`${label} must be a positive finite number`);
+  }
+  return value;
+}
