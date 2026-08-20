@@ -37,3 +37,11 @@ export {
   reserve,
 } from "./budget.js";
 export type { Ledger } from "./budget.js";
+export {
+  CONTROLLER_GENESIS_HASH,
+  appendControllerEvent,
+  controllerEventDetail,
+  createControllerEvent,
+  verifyControllerEventChain,
+} from "./controller-events.js";
+export type { ControllerEvent, ControllerEventType } from "./controller-events.js";
