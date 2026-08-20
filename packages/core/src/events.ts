@@ -23,7 +23,7 @@ export interface RunEvent {
   readonly eventHash: string;
 }
 
-function computeEventHash(fields: {
+interface HashableFields {
   sequence: number;
   timestamp: number;
   nodeId: string;
@@ -32,8 +32,30 @@ function computeEventHash(fields: {
   outputHash: string;
   metadataJson: string;
   previousHash: string;
-}): string {
-  return sha256(canonicalJson(fields));
+}
+
+/**
+ * Single source of truth for the set of fields covered by the event-chain
+ * hash. Both {@link EventRecorder.record} and {@link verifyEventChain} build
+ * their pre-hash object through this helper so the hashed field set can never
+ * drift between recording and verification. Returns every field EXCEPT
+ * `eventHash`.
+ */
+function hashableFields(event: HashableFields): HashableFields {
+  return {
+    sequence: event.sequence,
+    timestamp: event.timestamp,
+    nodeId: event.nodeId,
+    type: event.type,
+    inputHash: event.inputHash,
+    outputHash: event.outputHash,
+    metadataJson: event.metadataJson,
+    previousHash: event.previousHash,
+  };
+}
+
+function computeEventHash(fields: HashableFields): string {
+  return sha256(canonicalJson(hashableFields(fields)));
 }
 
 export class EventRecorder {
@@ -63,7 +85,7 @@ export class EventRecorder {
     const inputHash = valueHash(input.inputValue ?? null);
     const outputHash = valueHash(input.outputValue ?? null);
     const metadataJson = canonicalJson(input.metadata ?? {});
-    const fields = {
+    const fields = hashableFields({
       sequence,
       timestamp,
       nodeId: this.nodeId,
@@ -72,7 +94,7 @@ export class EventRecorder {
       outputHash,
       metadataJson,
       previousHash,
-    };
+    });
     const event: RunEvent = Object.freeze({
       ...fields,
       eventHash: computeEventHash(fields),
@@ -89,16 +111,7 @@ export function verifyEventChain(events: readonly RunEvent[]): boolean {
     if (event.sequence !== index || event.previousHash !== previousHash) {
       return false;
     }
-    const recalculated = computeEventHash({
-      sequence: event.sequence,
-      timestamp: event.timestamp,
-      nodeId: event.nodeId,
-      type: event.type,
-      inputHash: event.inputHash,
-      outputHash: event.outputHash,
-      metadataJson: event.metadataJson,
-      previousHash: event.previousHash,
-    });
+    const recalculated = computeEventHash(hashableFields(event));
     if (recalculated !== event.eventHash) {
       return false;
     }

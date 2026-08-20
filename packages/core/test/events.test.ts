@@ -5,6 +5,7 @@ import {
   GENESIS_HASH,
   resultBindingHash,
   verifyEventChain,
+  type RunEvent,
 } from "../src/events.js";
 
 function fixedClock(): () => number {
@@ -69,6 +70,29 @@ describe("verifyEventChain", () => {
     rec.record({ type: EventType.NODE_COMPLETED });
     expect(verifyEventChain([rec.events[1]!, rec.events[0]!])).toBe(false);
   });
+
+  const tamperCases: Array<{ field: keyof RunEvent; value: RunEvent[keyof RunEvent] }> = [
+    { field: "timestamp", value: 999999 },
+    { field: "type", value: EventType.NODE_FAILED },
+    { field: "inputHash", value: "a".repeat(64) },
+    { field: "outputHash", value: "b".repeat(64) },
+    { field: "metadataJson", value: '{"tampered":true}' },
+  ];
+
+  for (const { field, value } of tamperCases) {
+    it(`detects a tampered ${field}`, () => {
+      const rec = new EventRecorder("n1", fixedClock());
+      rec.record({
+        type: EventType.NODE_COMPLETED,
+        inputValue: "in",
+        outputValue: "out",
+        metadata: { k: "v" },
+      });
+      const events = [...rec.events];
+      events[0] = { ...events[0]!, [field]: value } as RunEvent;
+      expect(verifyEventChain(events)).toBe(false);
+    });
+  }
 });
 
 describe("resultBindingHash", () => {
