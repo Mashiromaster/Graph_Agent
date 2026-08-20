@@ -12,3 +12,5 @@ export {
 export type { ProposalResult } from "./graph-tools.js";
 export { InMemorySessionMemory } from "./memory.js";
 export type { SessionMemory } from "./memory.js";
+export { AgentNode } from "./agent-node.js";
+export type { NodeRunner } from "./agent-node.js";

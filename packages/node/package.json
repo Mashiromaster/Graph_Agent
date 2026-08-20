@@ -11,5 +11,8 @@
     "@graph-agent/core": "*",
     "@graph-agent/adapter": "*",
     "@graph-agent/session": "*"
+  },
+  "devDependencies": {
+    "@graph-agent/orchestrator": "*"
   }
 }
