@@ -15,7 +15,7 @@
  */
 
 import { readMessages, verifyMessageChain, type StoredMessage } from "./message-store.js";
-import { readRuntime, type RuntimeState } from "./runtime.js";
+import { readRuntime, runArchivePath, type RuntimeState } from "./runtime.js";
 import { openWorkItems } from "./work-ledger.js";
 import { pendingDeliveries } from "./inbox.js";
 import type { Storage } from "./storage.js";
@@ -32,14 +32,6 @@ export interface RecoverySnapshot {
   readonly openWork: readonly string[];
   /** 仍待投递(有 env 无 receipt)的 messageId 列表。 */
   readonly pendingDeliveries: readonly string[];
-}
-
-/**
- * 归档结果文件路径。镜像 runtime.ts 的 archivePath(`sessions/${sessionId}/runs/${runId}.json`);
- * runtime.ts 未导出该 helper,故此处按同一字面布局重建(与 runtime.ts 保持同步)。
- */
-function archivePath(sessionId: string, runId: string): string {
-  return `sessions/${sessionId}/runs/${runId}.json`;
 }
 
 /**
@@ -80,7 +72,7 @@ export async function recoverSession(
   // 3. 调和「归档-但仍-running」:running 且无归档 → 真中断;否则 null。
   let interruptedRunId: string | null = null;
   if (runtime.status === "running" && runtime.activeRunId !== null) {
-    const archived = await storage.exists(archivePath(sessionId, runtime.activeRunId));
+    const archived = await storage.exists(runArchivePath(sessionId, runtime.activeRunId));
     interruptedRunId = archived ? null : runtime.activeRunId;
   }
 

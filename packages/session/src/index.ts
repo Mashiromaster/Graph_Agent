@@ -5,7 +5,7 @@ export { createSessionDoc, writeSessionDoc, readSessionDoc } from "./session-doc
 export type { SessionDoc } from "./session-doc.js";
 export { appendMessage, readMessages, verifyMessageChain } from "./message-store.js";
 export type { StoredMessage, MessageRole } from "./message-store.js";
-export { startRun, finishRun, readRuntime, IllegalRuntimeTransition } from "./runtime.js";
+export { startRun, finishRun, readRuntime, runArchivePath, IllegalRuntimeTransition } from "./runtime.js";
 export type { RuntimeState } from "./runtime.js";
 export { openWork, settleWork, openWorkItems, workExecutionId } from "./work-ledger.js";
 export { putIfAbsent, ackAfterHistory, deliveryStatus, pendingDeliveries } from "./inbox.js";

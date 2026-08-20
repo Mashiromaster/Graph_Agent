@@ -49,8 +49,11 @@ function runtimePath(sessionId: string): string {
   return `sessions/${sessionId}/runtime.json`;
 }
 
-/** 归档结果文件路径。 */
-function archivePath(sessionId: string, runId: string): string {
+/**
+ * 归档结果文件路径:runtime 与 recovery 共享的单一真源。
+ * recovery.ts 的「归档-但仍-running」调和亦经此函数判定归档存在性,避免布局漂移导致的静默误判。
+ */
+export function runArchivePath(sessionId: string, runId: string): string {
   return `sessions/${sessionId}/runs/${runId}.json`;
 }
 
@@ -155,7 +158,7 @@ export async function finishRun(
   agentResult: AgentResult,
   clock: () => number,
 ): Promise<void> {
-  const path = archivePath(sessionId, runId);
+  const path = runArchivePath(sessionId, runId);
   if (await storage.exists(path)) {
     return;
   }
