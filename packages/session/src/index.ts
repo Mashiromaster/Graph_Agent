@@ -8,3 +8,5 @@ export type { StoredMessage, MessageRole } from "./message-store.js";
 export { startRun, finishRun, readRuntime, IllegalRuntimeTransition } from "./runtime.js";
 export type { RuntimeState } from "./runtime.js";
 export { openWork, settleWork, openWorkItems, workExecutionId } from "./work-ledger.js";
+export { putIfAbsent, ackAfterHistory, deliveryStatus, pendingDeliveries } from "./inbox.js";
+export type { DeliveryStatus } from "./inbox.js";
