@@ -7,3 +7,4 @@ export { appendMessage, readMessages, verifyMessageChain } from "./message-store
 export type { StoredMessage, MessageRole } from "./message-store.js";
 export { startRun, finishRun, readRuntime, IllegalRuntimeTransition } from "./runtime.js";
 export type { RuntimeState } from "./runtime.js";
+export { openWork, settleWork, openWorkItems, workExecutionId } from "./work-ledger.js";
