@@ -3,3 +3,5 @@ export type { Storage, InMemoryStorageOptions, FileStorageOptions } from "./stor
 export { deriveId } from "./ids.js";
 export { createSessionDoc, writeSessionDoc, readSessionDoc } from "./session-doc.js";
 export type { SessionDoc } from "./session-doc.js";
+export { appendMessage, readMessages, verifyMessageChain } from "./message-store.js";
+export type { StoredMessage, MessageRole } from "./message-store.js";
