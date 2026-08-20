@@ -24,7 +24,18 @@ export type {
   ProposalDecision,
   RunSnapshot,
 } from "./graph-models.js";
-export { isSha256Hex, normalizeTools, validateText, validateUnit } from "./validation.js";
+export {
+  isAncestor,
+  isSha256Hex,
+  normalizeTools,
+  validateMessage,
+  validateResult,
+  validateSkip,
+  validateSpawn,
+  validateText,
+  validateUnit,
+} from "./validation.js";
+export type { ValidatorState } from "./validation.js";
 export { terminalResultHash, verifyResultBinding } from "./result-binding.js";
 export {
   available,
