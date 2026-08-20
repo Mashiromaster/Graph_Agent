@@ -105,4 +105,49 @@ describe("Runtime", () => {
     expect(secondArchive).toBe(firstArchive);
     expect((await readRuntime(storage, SESSION_ID)).status).toBe("idle");
   });
+
+  describe("fail-closed validation of runtime.json on read", () => {
+    const runtimePath = `sessions/${SESSION_ID}/runtime.json`;
+    const hexRunId = "a".repeat(64);
+
+    it("throws on a corrupt status value", async () => {
+      const storage = new InMemoryStorage();
+      await storage.atomicWrite(
+        runtimePath,
+        JSON.stringify({ status: "garbage", activeRunId: null, updatedAt: 0 }),
+      );
+      await expect(readRuntime(storage, SESSION_ID)).rejects.toThrow();
+    });
+
+    it("throws when running has a null activeRunId", async () => {
+      const storage = new InMemoryStorage();
+      await storage.atomicWrite(
+        runtimePath,
+        JSON.stringify({ status: "running", activeRunId: null, updatedAt: 1 }),
+      );
+      await expect(readRuntime(storage, SESSION_ID)).rejects.toThrow();
+    });
+
+    it("throws when idle has a non-null activeRunId", async () => {
+      const storage = new InMemoryStorage();
+      await storage.atomicWrite(
+        runtimePath,
+        JSON.stringify({ status: "idle", activeRunId: hexRunId, updatedAt: 1 }),
+      );
+      await expect(readRuntime(storage, SESSION_ID)).rejects.toThrow();
+    });
+
+    it("round-trips a well-formed running state", async () => {
+      const storage = new InMemoryStorage();
+      await storage.atomicWrite(
+        runtimePath,
+        JSON.stringify({ status: "running", activeRunId: hexRunId, updatedAt: 7 }),
+      );
+      const state = await readRuntime(storage, SESSION_ID);
+      expect(state.status).toBe("running");
+      expect(state.activeRunId).toBe(hexRunId);
+      expect(state.updatedAt).toBe(7);
+      expect(Object.isFrozen(state)).toBe(true);
+    });
+  });
 });

@@ -10,6 +10,8 @@
  */
 
 import {
+  assertBoundedInt,
+  assertSha256Hex,
   canonicalJson,
   type AgentInput,
   type AgentResult,
@@ -57,22 +59,46 @@ function idleState(updatedAt: number): RuntimeState {
   return Object.freeze({ status: "idle", activeRunId: null, updatedAt });
 }
 
-/** 从解析后的对象重建并冻结 RuntimeState,读时校验字段。 */
-function reconstructState(raw: {
-  status: RuntimeState["status"];
-  activeRunId: string | null;
-  updatedAt: number;
-}): RuntimeState {
-  return Object.freeze({
-    status: raw.status,
-    activeRunId: raw.activeRunId,
-    updatedAt: raw.updatedAt,
-  });
+/**
+ * 从解析后的对象重建并冻结 RuntimeState,读时 fail-closed 校验字段:
+ * 篡改/损坏的 runtime.json 在读取时抛错,而非被 startRun 静默误判为可启动,
+ * 从而守住「至多一个 active run」不变量。
+ * - status 必须恰为 "idle" 或 "running"。
+ * - running 必须有非 null 的 64-hex activeRunId;idle 必须 activeRunId === null。
+ * - updatedAt 必须为 >= 0 的整数。
+ */
+function reconstructState(raw: unknown): RuntimeState {
+  if (typeof raw !== "object" || raw === null) {
+    throw new IllegalRuntimeTransition("corrupt runtime.json: not an object");
+  }
+  const { status, activeRunId, updatedAt } = raw as Record<string, unknown>;
+  if (status !== "idle" && status !== "running") {
+    throw new IllegalRuntimeTransition(
+      `corrupt runtime.json: invalid status ${JSON.stringify(status)}`,
+    );
+  }
+  const checkedUpdatedAt = assertBoundedInt(updatedAt as number, "updatedAt", { min: 0 });
+  if (status === "running") {
+    if (typeof activeRunId !== "string") {
+      throw new IllegalRuntimeTransition(
+        "corrupt runtime.json: running state must have a non-null activeRunId",
+      );
+    }
+    assertSha256Hex(activeRunId, "activeRunId");
+    return Object.freeze({ status, activeRunId, updatedAt: checkedUpdatedAt });
+  }
+  // status === "idle"
+  if (activeRunId !== null) {
+    throw new IllegalRuntimeTransition(
+      "corrupt runtime.json: idle state must have activeRunId === null",
+    );
+  }
+  return Object.freeze({ status, activeRunId: null, updatedAt: checkedUpdatedAt });
 }
 
 /**
- * 读取 runtime 状态;文件缺失则返回默认冻结 idle 状态 `{ idle, null, 0 }`。
- * 读时重建并冻结。
+ * 读取 runtime 状态;文件缺失则返回默认冻结 idle 状态 `{ idle, null, 0 }`(缺失非损坏)。
+ * 读时重建并 fail-closed 校验后冻结。
  */
 export async function readRuntime(
   storage: Storage,
@@ -81,11 +107,7 @@ export async function readRuntime(
   if (!(await storage.exists(runtimePath(sessionId)))) {
     return idleState(0);
   }
-  const parsed = JSON.parse(await storage.read(runtimePath(sessionId))) as {
-    status: RuntimeState["status"];
-    activeRunId: string | null;
-    updatedAt: number;
-  };
+  const parsed = JSON.parse(await storage.read(runtimePath(sessionId))) as unknown;
   return reconstructState(parsed);
 }
 
