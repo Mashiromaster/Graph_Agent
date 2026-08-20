@@ -59,3 +59,6 @@ export type { ControllerEvent, ControllerEventType } from "./controller-events.j
 export { createMutableRunState, snapshotOf } from "./mutable-state.js";
 export type { MutableRunState } from "./mutable-state.js";
 export { validateSnapshot } from "./snapshot-validation.js";
+export { applyMessage, applySkip, applySpawn } from "./mutations.js";
+export { RunnerCancelledError } from "./runner.js";
+export type { AgentSpec, NodeFactory, NodeRunner } from "./runner.js";
