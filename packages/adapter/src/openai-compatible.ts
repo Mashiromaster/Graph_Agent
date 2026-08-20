@@ -1,4 +1,4 @@
-import { canonicalJson, createUsage } from "@graph-agent/core";
+import { assertFinitePositive, canonicalJson, createUsage } from "@graph-agent/core";
 import type { Message, ModelRequest, ModelResponse, ToolCall } from "./model-types.js";
 import { createModelResponse, createToolCall } from "./model-types.js";
 import type { ModelAdapter } from "./model.js";
@@ -137,7 +137,11 @@ function parseToolCalls(rawToolCalls: unknown): ToolCall[] {
       throw new InvalidModelResponse("Malformed function tool call");
     }
     const fnObj = fn as { name?: unknown; arguments?: unknown };
-    if (typeof fnObj.name !== "string" || typeof fnObj.arguments !== "string") {
+    if (
+      typeof entry.id !== "string" ||
+      typeof fnObj.name !== "string" ||
+      typeof fnObj.arguments !== "string"
+    ) {
       throw new InvalidModelResponse("Malformed function tool call");
     }
     let parsedArgs: unknown;
@@ -150,8 +154,8 @@ function parseToolCalls(rawToolCalls: unknown): ToolCall[] {
       throw new InvalidModelResponse("Malformed function tool call");
     }
     return createToolCall({
-      id: String(entry.id),
-      name: String(fnObj.name),
+      id: entry.id,
+      name: fnObj.name,
       arguments: parsedArgs as Record<string, unknown>,
     });
   });
@@ -210,10 +214,7 @@ export class OpenAICompatibleModel implements ModelAdapter {
     const parsedUrl = validateBaseUrl(rawBaseUrl);
     this.baseUrl = rawBaseUrl;
 
-    const timeoutSeconds = config.timeoutSeconds ?? 60;
-    if (!(timeoutSeconds > 0)) {
-      throw new RangeError("timeoutSeconds must be greater than 0");
-    }
+    const timeoutSeconds = assertFinitePositive(config.timeoutSeconds ?? 60, "timeoutSeconds");
     this.timeoutSeconds = timeoutSeconds;
 
     if (config.maxOutputTokens !== undefined) {

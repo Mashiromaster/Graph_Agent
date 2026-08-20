@@ -59,6 +59,11 @@ describe("OpenAICompatibleModel construction", () => {
     expect(() => new OpenAICompatibleModel({ model: "m", timeoutSeconds: 0 })).toThrow();
   });
 
+  it("rejects a non-finite timeoutSeconds", () => {
+    expect(() => new OpenAICompatibleModel({ model: "m", timeoutSeconds: Infinity })).toThrow();
+    expect(() => new OpenAICompatibleModel({ model: "m", timeoutSeconds: Number.NaN })).toThrow();
+  });
+
   it("rejects non-integer / <1 maxOutputTokens", () => {
     expect(() => new OpenAICompatibleModel({ model: "m", maxOutputTokens: 0 })).toThrow();
     expect(() => new OpenAICompatibleModel({ model: "m", maxOutputTokens: 1.5 })).toThrow();
@@ -233,6 +238,36 @@ describe("OpenAICompatibleModel.complete response parsing", () => {
     });
     await expect(
       model.complete(createModelRequest({ nodeId: "n1", instructions: "x" })),
+    ).rejects.toBeInstanceOf(InvalidModelResponse);
+  });
+
+  it("throws InvalidModelResponse on a non-string / missing tool-call id", async () => {
+    const numericId = build({
+      choices: [
+        {
+          message: {
+            content: null,
+            tool_calls: [{ id: 42, type: "function", function: { name: "f", arguments: "{}" } }],
+          },
+        },
+      ],
+    });
+    await expect(
+      numericId.complete(createModelRequest({ nodeId: "n1", instructions: "x" })),
+    ).rejects.toBeInstanceOf(InvalidModelResponse);
+
+    const missingId = build({
+      choices: [
+        {
+          message: {
+            content: null,
+            tool_calls: [{ type: "function", function: { name: "f", arguments: "{}" } }],
+          },
+        },
+      ],
+    });
+    await expect(
+      missingId.complete(createModelRequest({ nodeId: "n1", instructions: "x" })),
     ).rejects.toBeInstanceOf(InvalidModelResponse);
   });
 });
