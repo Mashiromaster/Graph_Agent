@@ -26,3 +26,14 @@ export type {
 } from "./graph-models.js";
 export { isSha256Hex, normalizeTools, validateText, validateUnit } from "./validation.js";
 export { terminalResultHash, verifyResultBinding } from "./result-binding.js";
+export {
+  available,
+  budgetSnapshot,
+  claimReservation,
+  commitFull,
+  commitSuccess,
+  createLedger,
+  release,
+  reserve,
+} from "./budget.js";
+export type { Ledger } from "./budget.js";
