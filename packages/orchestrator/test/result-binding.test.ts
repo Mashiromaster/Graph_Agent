@@ -119,4 +119,29 @@ describe("verifyResultBinding", () => {
   it("缺少 result_hash 时返回 false(不抛错)", () => {
     expect(verifyResultBinding(buildResult({ dropResultHash: true }))).toBe(false);
   });
+
+  it("metadataJson 非法 JSON 时返回 false(不抛错)", () => {
+    // Adversarial/corrupt runner output: terminal event carries non-JSON metadata.
+    const malformedEvent: RunEvent = Object.freeze({
+      sequence: 0,
+      timestamp: 0,
+      nodeId: "node-1",
+      type: EventType.NODE_COMPLETED,
+      inputHash: "0".repeat(64),
+      outputHash: "0".repeat(64),
+      metadataJson: "{",
+      previousHash: "0".repeat(64),
+      eventHash: "0".repeat(64),
+    });
+    const result = createAgentResult({
+      nodeId: "node-1",
+      status: NodeStatus.COMPLETED,
+      output: "hello",
+      usage: createUsage({ inputTokens: 10, outputTokens: 5 }),
+      events: [malformedEvent],
+    });
+    expect(() => verifyResultBinding(result)).not.toThrow();
+    expect(verifyResultBinding(result)).toBe(false);
+    expect(terminalResultHash(result)).toBeNull();
+  });
 });

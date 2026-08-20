@@ -10,7 +10,12 @@ export function terminalResultHash(result: AgentResult): string | null {
   if (terminal === undefined) {
     return null;
   }
-  const metadata = JSON.parse(terminal.metadataJson) as Record<string, unknown>;
+  let metadata: Record<string, unknown>;
+  try {
+    metadata = JSON.parse(terminal.metadataJson) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
   const hash = metadata["result_hash"];
   return typeof hash === "string" ? hash : null;
 }

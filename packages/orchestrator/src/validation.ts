@@ -1,4 +1,4 @@
-import { assertNonEmptyText } from "@graph-agent/core";
+import { assertNonEmptyText, assertUnitInterval } from "@graph-agent/core";
 
 /**
  * Validate that {@link value} is a non-empty (post-trim) string whose length
@@ -14,21 +14,17 @@ export function validateText(value: unknown, limit: number): string {
 }
 
 /**
- * Validate a unit-interval number in [0, 1]. Booleans are rejected (a boolean
- * is not a number here), as are non-numbers, non-finite values, and values
- * outside the interval. When {@link opts.positive} is set, zero is rejected.
+ * Validate a unit-interval number in [0, 1]. Delegates the boolean-reject,
+ * finite, and range checks to core {@link assertUnitInterval} (which rejects
+ * booleans via its typeof guard); only the {@link opts.positive} zero-reject
+ * is added here. Returns the number.
  */
 export function validateUnit(value: unknown, opts: { positive?: boolean } = {}): number {
-  if (typeof value === "boolean" || typeof value !== "number") {
-    throw new TypeError("value must be a number");
-  }
-  if (!Number.isFinite(value) || value < 0 || value > 1) {
-    throw new RangeError("value must be within [0, 1]");
-  }
-  if (opts.positive && value === 0) {
+  const n = assertUnitInterval(value as number, "value");
+  if (opts.positive && n === 0) {
     throw new RangeError("value must be greater than 0");
   }
-  return value;
+  return n;
 }
 
 /**
