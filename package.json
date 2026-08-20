@@ -1,0 +1,16 @@
+{
+  "name": "graph-agent",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run -ws --if-present build",
+    "test": "vitest run",
+    "typecheck": "npm run -ws --if-present typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

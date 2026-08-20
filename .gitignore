@@ -13,3 +13,6 @@ dist/
 # Local upstream reference snapshot; source and revision are recorded in
 # THIRD_PARTY_NOTICES.md. Keep it outside the product repository history.
 awesome-llm-apps/
+
+node_modules/
+packages/*/dist/
