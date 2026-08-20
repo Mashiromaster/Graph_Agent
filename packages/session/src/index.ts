@@ -10,3 +10,7 @@ export type { RuntimeState } from "./runtime.js";
 export { openWork, settleWork, openWorkItems, workExecutionId } from "./work-ledger.js";
 export { putIfAbsent, ackAfterHistory, deliveryStatus, pendingDeliveries } from "./inbox.js";
 export type { DeliveryStatus } from "./inbox.js";
+export { recoverSession } from "./recovery.js";
+export type { RecoverySnapshot } from "./recovery.js";
+export { Session } from "./session.js";
+export type { MessageInput } from "./session.js";
