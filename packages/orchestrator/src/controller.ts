@@ -458,6 +458,17 @@ export class GraphController {
     }
   }
 
+  // ── events (read-only accessor) ──────────────────────────────────────────────
+
+  /**
+   * 只读返回某运行当前的控制器事件链副本(浅拷贝数组,元素本身已冻结)。
+   * 不改动内部状态,仅供上层(如 Web Studio)获取事件摘要 + 复算链有效性。
+   */
+  events(runId: string): readonly ControllerEvent[] {
+    const entry = this.require(runId);
+    return [...entry.events];
+  }
+
   // ── checkpoint ─────────────────────────────────────────────────────────────────
 
   async checkpoint(runId: string): Promise<string> {

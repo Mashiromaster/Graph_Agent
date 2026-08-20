@@ -5,6 +5,12 @@ export const EventType = Object.freeze({
   NODE_COMPLETED: "node_completed",
   NODE_FAILED: "node_failed",
   BUDGET_EXCEEDED: "budget_exceeded",
+  MODEL_STARTED: "model_started",
+  MODEL_COMPLETED: "model_completed",
+  TOOL_STARTED: "tool_started",
+  TOOL_COMPLETED: "tool_completed",
+  TOOL_REJECTED: "tool_rejected",
+  PROPOSAL_CREATED: "proposal_created",
 } as const);
 
 export type EventType = (typeof EventType)[keyof typeof EventType];
