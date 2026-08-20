@@ -324,7 +324,11 @@ export class FileStorage implements Storage {
       throw err;
     }
     const prefix = dir.endsWith("/") ? dir : `${dir}/`;
-    return entries.map((name) => `${prefix}${name}`);
+    // 排除内部产物:锁文件 `${p}.lock` 与临时文件 `${p}.tmp.<digits>`,
+    // 只返回真实已提交的逻辑文件,与 InMemoryStorage.list 保持同一集合。
+    return entries
+      .filter((name) => !name.endsWith(".lock") && !/\.tmp\.\d+$/.test(name))
+      .map((name) => `${prefix}${name}`);
   }
 
   async withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
