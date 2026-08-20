@@ -71,3 +71,4 @@ export {
   settleRun,
 } from "./scheduler.js";
 export type { Claim } from "./scheduler.js";
+export { GraphController } from "./controller.js";
