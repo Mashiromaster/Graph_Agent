@@ -41,7 +41,7 @@ import {
   createMutableRunState,
   type MutableRunState,
 } from "./mutable-state.js";
-import { parseResumableCheckpoint, type ResumableNode } from "./checkpoint.js";
+import { parseResumableCheckpoint } from "./checkpoint.js";
 import { GraphController } from "./controller.js";
 import type { AgentSpec, NodeFactory } from "./runner.js";
 
@@ -82,10 +82,6 @@ export function resumeController(
 
   // 2. Pre-validate(fail-closed,在构建任何东西之前)。
   const nodeIds = new Set(finalSnapshot.nodes.map((n) => n.nodeId));
-  const resumableByNodeId = new Map<string, ResumableNode>();
-  for (const node of resumable.nodes) {
-    resumableByNodeId.set(node.nodeId, node);
-  }
 
   // 2a. 每个 resumable 节点:spec 可 rehydrate、input 可重建。缓存结果以复用。
   const rehydratedSpecs = new Map<string, AgentSpec>();
