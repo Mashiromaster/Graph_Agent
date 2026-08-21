@@ -1,4 +1,4 @@
-export { createAgentSpec } from "./spec.js";
+export { createAgentSpec, agentSpecToDict, agentSpecFromDict } from "./spec.js";
 export type { AgentSpec, NodePolicy } from "./spec.js";
 export { FunctionTool, ToolArgumentError } from "./tools.js";
 export type { Tool } from "./tools.js";
@@ -12,5 +12,6 @@ export {
 export type { ProposalResult } from "./graph-tools.js";
 export { InMemorySessionMemory } from "./memory.js";
 export type { SessionMemory } from "./memory.js";
+export { SessionBackedMemory } from "./session-memory.js";
 export { AgentNode } from "./agent-node.js";
 export type { NodeRunner } from "./agent-node.js";
