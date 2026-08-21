@@ -209,8 +209,11 @@ interface StubStore {
   load: (id: string) => Promise<string>;
 }
 
+/** A valid checkpoint id: 64-char lowercase hex (the shape deriveId produces). */
+const VALID_ID = "a".repeat(64);
+
 const STUB_META = {
-  id: "ckpt-1",
+  id: VALID_ID,
   runId: "r",
   status: "succeeded",
   nodeCount: 1,
@@ -218,12 +221,18 @@ const STUB_META = {
   createdAt: 0,
 };
 
+/** Records ids passed to load(), so tests can assert load is NOT reached. */
+let loadCalls: string[] = [];
+/** Set true whenever the injected runResume is invoked. */
+let runResumeCalled = false;
+
 function makeStubStore(overrides?: Partial<StubStore>): StubStore {
   return {
-    save: async (_json: string) => ({ id: "ckpt-1", meta: STUB_META }),
+    save: async (_json: string) => ({ id: VALID_ID, meta: STUB_META }),
     list: async () => [STUB_META],
     load: async (id: string) => {
-      if (id === "ckpt-1") {
+      loadCalls.push(id);
+      if (id === VALID_ID) {
         return "the-checkpoint-json";
       }
       throw new Error("no such file");
@@ -233,6 +242,7 @@ function makeStubStore(overrides?: Partial<StubStore>): StubStore {
 }
 
 async function stubRunResume(): Promise<StudioResult> {
+  runResumeCalled = true;
   return CANNED;
 }
 
@@ -249,6 +259,11 @@ function makeCheckpointServer(opts?: {
 describe("checkpoint endpoints", () => {
   let cpServer: Server;
   let cpBase: string;
+
+  beforeEach(() => {
+    loadCalls = [];
+    runResumeCalled = false;
+  });
 
   async function start(server: Server): Promise<string> {
     cpServer = server;
@@ -273,7 +288,7 @@ describe("checkpoint endpoints", () => {
     expect(res.status).toBe(200);
     expectSecurityHeaders(res);
     const body = await res.json();
-    expect(body.id).toBe("ckpt-1");
+    expect(body.id).toBe(VALID_ID);
     expect(body.meta).toEqual(STUB_META);
   });
 
@@ -326,7 +341,7 @@ describe("checkpoint endpoints", () => {
 
   it("GET /api/checkpoints/:id returns {checkpoint}", async () => {
     cpBase = await start(makeCheckpointServer());
-    const res = await fetch(`${cpBase}/api/checkpoints/ckpt-1`);
+    const res = await fetch(`${cpBase}/api/checkpoints/${VALID_ID}`);
     expect(res.status).toBe(200);
     expectSecurityHeaders(res);
     const body = await res.json();
@@ -335,8 +350,23 @@ describe("checkpoint endpoints", () => {
 
   it("GET /api/checkpoints/:id returns 404 when absent", async () => {
     cpBase = await start(makeCheckpointServer());
-    const res = await fetch(`${cpBase}/api/checkpoints/missing`);
+    const res = await fetch(`${cpBase}/api/checkpoints/${"b".repeat(64)}`);
     expect(res.status).toBe(404);
+  });
+
+  it("GET /api/checkpoints/:id rejects a path-traversal id with 404 without touching storage", async () => {
+    cpBase = await start(makeCheckpointServer());
+    // ..%2F..%2Fetc%2Fhosts decodes to ../../etc/hosts — a traversal attempt.
+    const res = await fetch(`${cpBase}/api/checkpoints/..%2F..%2F..%2F..%2Fetc%2Fhosts`);
+    expect(res.status).toBe(404);
+    expect(loadCalls).toEqual([]);
+  });
+
+  it("GET /api/checkpoints/:id rejects a non-hex id with 404 without touching storage", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints/not-a-hex-id`);
+    expect(res.status).toBe(404);
+    expect(loadCalls).toEqual([]);
   });
 
   it("POST /api/checkpoints/resume returns a StudioResult", async () => {
@@ -345,7 +375,7 @@ describe("checkpoint endpoints", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        id: "ckpt-1",
+        id: VALID_ID,
         provider: { type: "deepseek", api_key: VALID_KEY, model: "deepseek-v4-flash" },
       }),
     });
@@ -360,7 +390,7 @@ describe("checkpoint endpoints", () => {
     const res = await fetch(`${cpBase}/api/checkpoints/resume`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "ckpt-1" }),
+      body: JSON.stringify({ id: VALID_ID }),
     });
     expect(res.status).toBe(400);
   });
@@ -371,24 +401,42 @@ describe("checkpoint endpoints", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        id: "ckpt-1",
+        id: VALID_ID,
         provider: { type: "openai", api_key: VALID_KEY, model: "deepseek-v4-flash" },
       }),
     });
     expect(res.status).toBe(400);
   });
 
-  it("POST /api/checkpoints/resume returns 400 for an unknown id (load throws)", async () => {
+  it("POST /api/checkpoints/resume rejects a path-traversal id with 400 without load/runResume", async () => {
     cpBase = await start(makeCheckpointServer());
     const res = await fetch(`${cpBase}/api/checkpoints/resume`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        id: "missing",
+        id: "../../../../etc/hosts",
         provider: { type: "deepseek", api_key: VALID_KEY, model: "deepseek-v4-flash" },
       }),
     });
     expect(res.status).toBe(400);
+    expect(loadCalls).toEqual([]);
+    expect(runResumeCalled).toBe(false);
+  });
+
+  it("POST /api/checkpoints/resume returns 400 for an unknown (valid-hex) id (load throws)", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "b".repeat(64),
+        provider: { type: "deepseek", api_key: VALID_KEY, model: "deepseek-v4-flash" },
+      }),
+    });
+    expect(res.status).toBe(400);
+    // load WAS reached for a well-formed id, then threw (absent).
+    expect(loadCalls).toEqual(["b".repeat(64)]);
+    expect(runResumeCalled).toBe(false);
   });
 
   it("POST /api/checkpoints/resume returns 502 when runResume throws", async () => {
@@ -403,7 +451,7 @@ describe("checkpoint endpoints", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        id: "ckpt-1",
+        id: VALID_ID,
         provider: { type: "deepseek", api_key: VALID_KEY, model: "deepseek-v4-flash" },
       }),
     });

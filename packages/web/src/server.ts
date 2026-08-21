@@ -33,6 +33,9 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 const BODY_KEYS = ["conversation", "provider", "task"] as const;
 const CHECKPOINT_SAVE_KEYS = ["checkpoint"] as const;
 const RESUME_KEYS = ["id", "provider"] as const;
+/** A checkpoint id is always a 64-char lowercase hex string from deriveId. Any
+ * other shape (e.g. a `../` traversal id) is rejected before touching storage. */
+const CHECKPOINT_ID_RE = /^[0-9a-f]{64}$/;
 const DEFAULT_CHECKPOINT_DIR = ".graph-agent/checkpoints";
 
 const SECURITY_HEADERS: Readonly<Record<string, string>> = Object.freeze({
@@ -283,7 +286,8 @@ async function handleCheckpointGet(
   store: CheckpointStore,
   id: string,
 ): Promise<void> {
-  if (id.length === 0) {
+  if (id.length === 0 || !CHECKPOINT_ID_RE.test(id)) {
+    // Reject any non-hex id (traversal/escape) WITHOUT touching storage.
     sendJson(res, 404, { error: "Not found" });
     return;
   }
@@ -331,8 +335,9 @@ async function handleCheckpointResume(
         throw new Error("body must have exactly keys {id, provider}");
       }
       const id = body["id"];
-      if (typeof id !== "string" || id.length === 0) {
-        throw new Error("id must be a non-empty string");
+      if (typeof id !== "string" || !CHECKPOINT_ID_RE.test(id)) {
+        // Reject any non-hex id (traversal/escape) before load/runResume.
+        throw new Error("id must be a 64-char lowercase hex string");
       }
       const provider = DeepSeekConfig.fromPayload(body["provider"]);
       let checkpointJson: string;
