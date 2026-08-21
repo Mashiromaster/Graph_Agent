@@ -1,7 +1,14 @@
-import type { Usage } from "./budget.js";
+import { createUsage, type Usage } from "./budget.js";
 import { assertBoolean, assertNonEmptyText, assertUnitInterval } from "./guards.js";
-import type { MessageProposal, SkipContextProposal, SpawnProposal } from "./proposals.js";
-import type { RunEvent } from "./events.js";
+import {
+  createMessageProposal,
+  createSkipContextProposal,
+  createSpawnProposal,
+  type MessageProposal,
+  type SkipContextProposal,
+  type SpawnProposal,
+} from "./proposals.js";
+import { runEventFromDict, runEventToDict, type RunEvent } from "./events.js";
 
 export const NodeStatus = Object.freeze({
   COMPLETED: "completed",
@@ -104,5 +111,159 @@ export function createAgentResult(input: {
     messageProposals: Object.freeze([...(input.messageProposals ?? [])]),
     skipContextProposals: Object.freeze([...(input.skipContextProposals ?? [])]),
     error: input.error ?? null,
+  });
+}
+
+function asObject(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function asArray(value: unknown, label: string): unknown[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${label} must be an array`);
+  }
+  return value;
+}
+
+export function agentInputToDict(input: AgentInput): Record<string, unknown> {
+  return {
+    task: input.task,
+    context: input.context.map((packet) => ({
+      sourceNodeId: packet.sourceNodeId,
+      content: packet.content,
+      trust: packet.trust,
+      edgeType: packet.edgeType,
+    })),
+    sessionId: input.sessionId,
+    metadata: { ...input.metadata },
+  };
+}
+
+export function agentInputFromDict(value: unknown): AgentInput {
+  const record = asObject(value, "agentInput");
+  const context = asArray(record.context ?? [], "context").map((entry) => {
+    const packet = asObject(entry, "contextPacket");
+    return createContextPacket({
+      sourceNodeId: packet.sourceNodeId as string,
+      content: packet.content as string,
+      trust: packet.trust as number,
+      edgeType: packet.edgeType as string,
+    });
+  });
+  const sessionId = record.sessionId;
+  if (sessionId !== null && sessionId !== undefined && typeof sessionId !== "string") {
+    throw new TypeError("sessionId must be a string or null");
+  }
+  const metadata = asObject(record.metadata ?? {}, "metadata");
+  return createAgentInput({
+    task: record.task as string,
+    context,
+    sessionId: (sessionId ?? null) as string | null,
+    metadata: { ...metadata },
+  });
+}
+
+export function agentResultToDict(result: AgentResult): Record<string, unknown> {
+  return {
+    nodeId: result.nodeId,
+    status: result.status,
+    output: result.output,
+    usage: {
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+    },
+    events: result.events.map(runEventToDict),
+    spawnProposals: result.spawnProposals.map((p) => ({ ...p, toolNames: [...p.toolNames] })),
+    messageProposals: result.messageProposals.map((p) => ({ ...p })),
+    skipContextProposals: result.skipContextProposals.map((p) => ({ ...p })),
+    error:
+      result.error === null
+        ? null
+        : {
+            code: result.error.code,
+            message: result.error.message,
+            retryable: result.error.retryable,
+          },
+  };
+}
+
+export function agentResultFromDict(value: unknown): AgentResult {
+  const record = asObject(value, "agentResult");
+  const status = record.status;
+  if (status !== NodeStatus.COMPLETED && status !== NodeStatus.FAILED) {
+    throw new RangeError("status must be a valid NodeStatus");
+  }
+  const output = record.output;
+  if (output !== null && output !== undefined && typeof output !== "string") {
+    throw new TypeError("output must be a string or null");
+  }
+  const usage = asObject(record.usage, "usage");
+  const errorValue = record.error;
+  const error =
+    errorValue === null || errorValue === undefined
+      ? null
+      : createNodeError(
+          ((): { code: string; message: string; retryable: boolean } => {
+            const e = asObject(errorValue, "error");
+            return {
+              code: e.code as string,
+              message: e.message as string,
+              retryable: assertBoolean(e.retryable as boolean, "retryable"),
+            };
+          })(),
+        );
+  return createAgentResult({
+    nodeId: record.nodeId as string,
+    status,
+    output: (output ?? null) as string | null,
+    usage: createUsage({
+      inputTokens: usage.inputTokens as number,
+      outputTokens: usage.outputTokens as number,
+    }),
+    events: asArray(record.events, "events").map(runEventFromDict),
+    spawnProposals: asArray(record.spawnProposals ?? [], "spawnProposals").map((entry) => {
+      const p = asObject(entry, "spawnProposal");
+      return createSpawnProposal({
+        proposalId: p.proposalId as string,
+        parentNodeId: p.parentNodeId as string,
+        generation: p.generation as number,
+        role: p.role as string,
+        objective: p.objective as string,
+        instructions: p.instructions as string,
+        toolNames: asArray(p.toolNames ?? [], "toolNames") as string[],
+        priority: p.priority as number,
+        budgetShare: p.budgetShare as number,
+      });
+    }),
+    messageProposals: asArray(record.messageProposals ?? [], "messageProposals").map(
+      (entry) => {
+        const p = asObject(entry, "messageProposal");
+        return createMessageProposal({
+          proposalId: p.proposalId as string,
+          sourceNodeId: p.sourceNodeId as string,
+          targetNodeId: p.targetNodeId as string,
+          content: p.content as string,
+          priority: p.priority as number,
+          ttlSeconds: p.ttlSeconds as number,
+        });
+      },
+    ),
+    skipContextProposals: asArray(
+      record.skipContextProposals ?? [],
+      "skipContextProposals",
+    ).map((entry) => {
+      const p = asObject(entry, "skipContextProposal");
+      return createSkipContextProposal({
+        proposalId: p.proposalId as string,
+        requesterNodeId: p.requesterNodeId as string,
+        sourceNodeId: p.sourceNodeId as string,
+        reason: p.reason as string,
+        contextGate: p.contextGate as number,
+      });
+    }),
+    error,
   });
 }

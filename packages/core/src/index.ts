@@ -18,6 +18,10 @@ export {
 export type { NodeBudget, Usage } from "./budget.js";
 export {
   NodeStatus,
+  agentInputFromDict,
+  agentInputToDict,
+  agentResultFromDict,
+  agentResultToDict,
   createAgentInput,
   createAgentResult,
   createContextPacket,
@@ -44,6 +48,8 @@ export {
   EventType,
   GENESIS_HASH,
   resultBindingHash,
+  runEventFromDict,
+  runEventToDict,
   verifyEventChain,
 } from "./events.js";
 export type { RunEvent } from "./events.js";

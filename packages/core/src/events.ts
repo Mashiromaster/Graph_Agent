@@ -1,3 +1,4 @@
+import { assertBoundedInt, assertNonEmptyText, assertSha256Hex } from "./guards.js";
 import { canonicalJson, sha256, valueHash } from "./hash.js";
 
 export const EventType = Object.freeze({
@@ -124,6 +125,61 @@ export function verifyEventChain(events: readonly RunEvent[]): boolean {
     previousHash = event.eventHash;
   }
   return true;
+}
+
+const EVENT_TYPE_VALUES: ReadonlySet<string> = new Set(Object.values(EventType));
+
+/**
+ * Trivial projection of a RunEvent to a canonicalJson-friendly plain object.
+ * All fields are already primitives, so this is a shallow spread.
+ */
+export function runEventToDict(event: RunEvent): Record<string, unknown> {
+  return {
+    sequence: event.sequence,
+    timestamp: event.timestamp,
+    nodeId: event.nodeId,
+    type: event.type,
+    inputHash: event.inputHash,
+    outputHash: event.outputHash,
+    metadataJson: event.metadataJson,
+    previousHash: event.previousHash,
+    eventHash: event.eventHash,
+  };
+}
+
+/**
+ * Rebuild a RunEvent from a plain object, validating the 9 flat fields.
+ * Does NOT recompute hashes — the stored eventHash/previousHash are preserved
+ * verbatim so a rebuilt chain still passes {@link verifyEventChain}. Fail-closed
+ * on any malformed field.
+ */
+export function runEventFromDict(value: unknown): RunEvent {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("runEventFromDict expects an object");
+  }
+  const record = value as Record<string, unknown>;
+  const type = record.type;
+  if (typeof type !== "string" || !EVENT_TYPE_VALUES.has(type)) {
+    throw new RangeError("type must be a known EventType value");
+  }
+  return Object.freeze({
+    sequence: assertBoundedInt(record.sequence as number, "sequence", { min: 0 }),
+    timestamp: assertBoundedInt(record.timestamp as number, "timestamp", { min: 0 }),
+    nodeId: assertNonEmptyText(record.nodeId as string, "nodeId"),
+    type: type as EventType,
+    inputHash: assertSha256Hex(record.inputHash as string, "inputHash"),
+    outputHash: assertSha256Hex(record.outputHash as string, "outputHash"),
+    metadataJson: assertMetadataJson(record.metadataJson),
+    previousHash: assertSha256Hex(record.previousHash as string, "previousHash"),
+    eventHash: assertSha256Hex(record.eventHash as string, "eventHash"),
+  });
+}
+
+function assertMetadataJson(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new TypeError("metadataJson must be a string");
+  }
+  return value;
 }
 
 export function resultBindingHash(input: {
