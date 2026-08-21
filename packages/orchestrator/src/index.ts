@@ -83,3 +83,5 @@ export type {
   ResumableArchivedResult,
   ParsedResumableCheckpoint,
 } from "./checkpoint.js";
+export { resumeController } from "./resume.js";
+export type { ResumeOptions } from "./resume.js";
