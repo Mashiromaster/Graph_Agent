@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { InMemoryStorage, readMessages } from "@graph-agent/session";
-import { createMessage } from "@graph-agent/adapter";
+import { createMessage, createToolCall } from "@graph-agent/adapter";
 import { SessionBackedMemory } from "../src/index.js";
 
 describe("SessionBackedMemory", () => {
@@ -90,5 +90,26 @@ describe("SessionBackedMemory", () => {
     });
     const loaded = await mem.load({ nodeId: "n1", sessionId: "run1" });
     expect(loaded[0]!.content).toBe("");
+  });
+
+  it("round-trips a message with non-empty tool calls", async () => {
+    const storage = new InMemoryStorage();
+    const mem = new SessionBackedMemory({ storage });
+    const toolCall = createToolCall({
+      id: "c1",
+      name: "multiply",
+      arguments: { a: 6, b: 7 },
+    });
+    const original = createMessage({
+      role: "assistant",
+      content: "calling tool",
+      toolCalls: [toolCall],
+    });
+    await mem.append({ nodeId: "n1", sessionId: "run1", messages: [original] });
+    const loaded = await mem.load({ nodeId: "n1", sessionId: "run1" });
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]!.toolCalls).toEqual([
+      { id: "c1", name: "multiply", arguments: { a: 6, b: 7 } },
+    ]);
   });
 });
