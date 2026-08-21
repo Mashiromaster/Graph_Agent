@@ -5,10 +5,18 @@ import {
   type AgentResult,
 } from "@graph-agent/core";
 import { createControllerPolicy } from "../src/policy.js";
-import { NodeState, RunStatus } from "../src/graph-models.js";
+import {
+  NodeState,
+  RunStatus,
+  createNodeRecord,
+  runSnapshotToDict,
+} from "../src/graph-models.js";
 import type { AgentSpec, NodeFactory, NodeRunner } from "../src/runner.js";
 import { GraphController } from "../src/controller.js";
 import { resumeController } from "../src/resume.js";
+import { buildResumableCheckpoint } from "../src/checkpoint.js";
+import { createMutableRunState, snapshotOf } from "../src/mutable-state.js";
+import { appendControllerEvent, type ControllerEvent } from "../src/controller-events.js";
 import { completedResult, spawnProposal, agentInput } from "./fixtures.js";
 
 function rootSpec(nodeId: string): AgentSpec & { toolNames: readonly string[] } {
@@ -241,6 +249,78 @@ describe("resume: continues an interrupted run without re-running completed node
           rehydrateSpec: throwingRehydrate,
         }),
       ).toThrow(/cannot rehydrate spec/);
+    });
+  });
+});
+
+/**
+ * Scenario E: the interrupted RUNNING → READY reset path.
+ *
+ * APPROACH: the scheduler always settles every claim within a single superstep
+ * (claim → RUNNING → settle all happen inside runSuperstepInner), so a node can
+ * never be observed in RUNNING state at a public checkpointResumable boundary.
+ * Producing a valid v2 checkpoint carrying a RUNNING node through the public API
+ * is therefore genuinely impossible. Per the brief's fallback, we build the
+ * checkpoint directly via buildResumableCheckpoint from a MutableRunState we
+ * construct with one node RUNNING (a genuine interrupted mid-flight state: its
+ * reservation is held, no archived result exists for it), a valid event chain
+ * (run_created + snapshot), then resume and assert it re-runs. This mirrors the
+ * direct-state construction pattern already used in checkpoint-v2.test.ts.
+ */
+describe("resume: interrupted RUNNING node is reset to READY and re-run", () => {
+  it("Scenario E: a RUNNING node in the checkpoint is rebuilt as READY, created + run once", () => {
+    const policy = createControllerPolicy();
+    const runId = "run-interrupted";
+    const reservation = 30;
+
+    // Build a MutableRunState with a single RUNNING node holding its reservation.
+    const state: MutableRunState = createMutableRunState(runId, policy);
+    state.status = RunStatus.RUNNING;
+    state.nodes.set(
+      "root",
+      createNodeRecord({
+        nodeId: "root",
+        name: "Root",
+        role: "root",
+        parentNodeId: null,
+        generation: 0,
+        priority: 0.5,
+        state: NodeState.RUNNING, // interrupted mid-flight
+        allowedToolNames: [],
+        allocationTokens: reservation,
+      }),
+    );
+    state.specs.set("root", rootSpec("root"));
+    state.inputs.set("root", agentInput("root"));
+    state.nodeReservations.set("root", reservation);
+    state.reservedTokens = reservation;
+    // No archived result for the RUNNING node (it never completed).
+
+    // Valid event chain: run_created + snapshot of the (RUNNING) state.
+    let events: ControllerEvent[] = appendControllerEvent([], runId, "run_created", {});
+    events = appendControllerEvent(events, runId, "snapshot", {
+      snapshot: runSnapshotToDict(snapshotOf(state)),
+    });
+
+    const json = buildResumableCheckpoint(state, events);
+
+    // Resume with a fresh spy factory.
+    const factory = spyFactory();
+    const c = resumeController(json, factory, { policy, clock: () => 0, rehydrateSpec });
+
+    return c.runUntilIdle(runId).then((final) => {
+      // The RUNNING node was reset to READY → the factory created + ran it once.
+      // (If it had been treated as completed, it would be neither created nor run.)
+      expect(factory.created).toContain("root");
+      expect(factory.runCounts.get("root")).toBe(1);
+
+      // Run converged; the re-run committed the node's usage, reservation cleared.
+      expect(final.status).toBe(RunStatus.SUCCEEDED);
+      expect(final.nodes.every((n) => n.state === NodeState.SUCCEEDED)).toBe(true);
+      expect(final.budget.reservedTokens).toBe(0);
+      // completedResult("root", 2, 2) commits 4 tokens on the re-run.
+      expect(final.budget.committedTokens).toBe(4);
+      expect(final.pendingExecutions).toBe(0);
     });
   });
 });
