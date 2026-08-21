@@ -15,7 +15,7 @@ import type { AgentSpec, NodeFactory, NodeRunner } from "../src/runner.js";
 import { GraphController } from "../src/controller.js";
 import { resumeController } from "../src/resume.js";
 import { buildResumableCheckpoint } from "../src/checkpoint.js";
-import { createMutableRunState, snapshotOf } from "../src/mutable-state.js";
+import { createMutableRunState, snapshotOf, type MutableRunState } from "../src/mutable-state.js";
 import { appendControllerEvent, type ControllerEvent } from "../src/controller-events.js";
 import { completedResult, spawnProposal, agentInput } from "./fixtures.js";
 
