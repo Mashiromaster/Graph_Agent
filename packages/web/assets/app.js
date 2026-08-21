@@ -31,6 +31,8 @@ const elements = {
   chatEmpty: document.querySelector("#chatEmpty"),
   chatScroll: document.querySelector("#chatScroll"),
   chatView: document.querySelector("#chatView"),
+  checkpointList: document.querySelector("#checkpointList"),
+  checkpointsView: document.querySelector("#checkpointsView"),
   edgeLayer: document.querySelector("#edgeLayer"),
   edgeMetric: document.querySelector("#edgeMetric"),
   emptyCanvas: document.querySelector("#emptyCanvas"),
@@ -58,6 +60,7 @@ const elements = {
   providerSidebarStatus: document.querySelector("#providerSidebarStatus"),
   runButton: document.querySelector("#runButton"),
   runStateLabel: document.querySelector("#runStateLabel"),
+  saveCheckpointBtn: document.querySelector("#saveCheckpointBtn"),
   sidebar: document.querySelector("#sidebar"),
   sidebarScrim: document.querySelector("#sidebarScrim"),
   statusMetric: document.querySelector("#statusMetric"),
@@ -350,6 +353,7 @@ function showChat() {
   state.view = "chat";
   elements.chatView.hidden = false;
   elements.graphView.hidden = true;
+  elements.checkpointsView.hidden = true;
   elements.topActions.hidden = true;
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
   syncHeader();
@@ -361,6 +365,7 @@ function showGraph(result = state.result) {
   state.activeNodeId = rootNodeId(state.result);
   elements.chatView.hidden = true;
   elements.graphView.hidden = false;
+  elements.checkpointsView.hidden = true;
   elements.topActions.hidden = false;
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
   elements.graphNavButton.classList.add("active");
@@ -368,6 +373,200 @@ function showGraph(result = state.result) {
   if (state.result) renderGraphResult();
   else resetGraphUI();
   syncHeader();
+}
+
+function showCheckpoints() {
+  state.view = "checkpoints";
+  elements.chatView.hidden = true;
+  elements.graphView.hidden = true;
+  elements.checkpointsView.hidden = false;
+  elements.topActions.hidden = true;
+  document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
+  document.querySelector('.nav-item[data-view="checkpoints"]')?.classList.add("active");
+  setSidebar(false);
+  renderCheckpoints();
+  syncHeader();
+}
+
+async function renderCheckpoints() {
+  elements.saveCheckpointBtn.disabled = !state.result?.checkpoint;
+  elements.checkpointList.replaceChildren();
+  let checkpoints;
+  try {
+    const response = await fetch("/api/checkpoints");
+    if (!response.ok) throw new Error("列表加载失败");
+    ({ checkpoints } = await response.json());
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "无法加载 checkpoint 列表", true);
+    return;
+  }
+  if (state.view !== "checkpoints") return;
+  if (!checkpoints || checkpoints.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "checkpoint-empty";
+    empty.textContent = "还没有保存的 checkpoint。完成一轮对话后,回到这里保存当前运行。";
+    elements.checkpointList.append(empty);
+    return;
+  }
+
+  checkpoints.forEach((meta) => {
+    const item = document.createElement("div");
+    item.className = "checkpoint-item";
+    const copy = document.createElement("div");
+    copy.className = "checkpoint-copy";
+    const title = document.createElement("strong");
+    title.textContent = String(meta.runId || meta.id).slice(0, 22);
+    const info = document.createElement("span");
+    info.className = "checkpoint-meta";
+    info.textContent = `${labels[meta.status] || meta.status} · ${meta.nodeCount} 节点 · ${meta.eventCount} 事件`;
+    copy.append(title, info);
+
+    const actions = document.createElement("div");
+    actions.className = "checkpoint-actions";
+    const viewButton = document.createElement("button");
+    viewButton.type = "button";
+    viewButton.className = "secondary-button";
+    viewButton.textContent = "查看";
+    viewButton.addEventListener("click", () => viewCheckpoint(meta.id));
+    const resumeButton = document.createElement("button");
+    resumeButton.type = "button";
+    resumeButton.className = "secondary-button";
+    resumeButton.textContent = "续跑";
+    resumeButton.addEventListener("click", () => resumeCheckpoint(meta.id));
+    actions.append(viewButton, resumeButton);
+
+    item.append(copy, actions);
+    elements.checkpointList.append(item);
+  });
+}
+
+async function saveCurrentCheckpoint() {
+  if (!state.result?.checkpoint) {
+    showToast("当前没有可保存的运行", true);
+    return;
+  }
+  try {
+    const response = await fetch("/api/checkpoints", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ checkpoint: state.result.checkpoint }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "保存失败");
+    showToast("已保存");
+    renderCheckpoints();
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "保存失败", true);
+  }
+}
+
+/**
+ * Project a stored v2 checkpoint JSON into a minimal StudioResult so the graph
+ * view can render the saved topology read-only. The final snapshot lives in the
+ * last `snapshot`-type event's detail; archived results (if any) back the
+ * inspector node outputs.
+ */
+function checkpointToResult(checkpointJson) {
+  const checkpoint = JSON.parse(checkpointJson);
+  const events = Array.isArray(checkpoint.events) ? checkpoint.events : [];
+  let snapshot = null;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index]?.type === "snapshot") {
+      const detail = JSON.parse(events[index].detailJson);
+      snapshot = detail.snapshot;
+      break;
+    }
+  }
+  const archived = checkpoint.resumable?.archivedResults ?? [];
+  const nodeResults = archived.map((entry) => {
+    const result = entry.result || {};
+    return {
+      node_id: result.nodeId,
+      status: result.status,
+      output: result.output ?? null,
+      usage: {
+        inputTokens: result.usage?.inputTokens ?? 0,
+        outputTokens: result.usage?.outputTokens ?? 0,
+      },
+      error: result.error ? { code: result.error.code, message: result.error.message } : null,
+    };
+  });
+  const rootArchived = nodeResults.find((entry) => entry.node_id === "root");
+  return {
+    controller_event_chain_valid: true,
+    elapsed_ms: 0,
+    event_count: checkpoint.eventCount ?? events.length,
+    events: events.map((event) => ({
+      hash: String(event.eventHash || "").slice(0, 12),
+      sequence: event.sequence,
+      type: event.type,
+    })),
+    live: false,
+    node_results: nodeResults,
+    primary_output: rootArchived ? rootArchived.output : null,
+    provider: state.result?.provider ?? {
+      endpoint: "https://api.deepseek.com",
+      model: state.provider.model,
+      thinking: "disabled",
+      type: "deepseek",
+    },
+    snapshot,
+    task: "(已保存的 checkpoint)",
+    checkpoint: checkpointJson,
+  };
+}
+
+async function viewCheckpoint(id) {
+  try {
+    const response = await fetch(`/api/checkpoints/${id}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "加载失败");
+    const result = checkpointToResult(payload.checkpoint);
+    if (!result.snapshot) throw new Error("checkpoint 缺少快照");
+    showGraph(result);
+    showToast("已载入 checkpoint(只读)");
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "加载失败", true);
+  }
+}
+
+async function resumeCheckpoint(id) {
+  if (!state.provider.apiKey) {
+    openProviderDialog();
+    showToast("续跑需要先配置 DeepSeek API Key", true);
+    return;
+  }
+  const task = createTask("续跑 checkpoint");
+  task.status = "running";
+  setRunning(true, task.id);
+  renderTasks();
+  try {
+    const response = await fetch("/api/checkpoints/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id,
+        provider: {
+          type: "deepseek",
+          api_key: state.provider.apiKey,
+          model: state.provider.model,
+        },
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "续跑失败");
+    task.elapsed = payload.elapsed_ms;
+    task.lastResult = payload;
+    task.status = payload.snapshot.status;
+    showGraph(payload);
+    showToast("续跑完成");
+  } catch (error) {
+    task.status = "failed";
+    showToast(error instanceof Error ? error.message : "续跑失败", true);
+  } finally {
+    setRunning(false);
+    renderTasks();
+  }
 }
 
 function renderGraphResult() {
@@ -701,11 +900,13 @@ document.querySelector("#menuButton").addEventListener("click", () => setSidebar
 document.querySelector("#sidebarClose").addEventListener("click", () => setSidebar(false));
 elements.sidebarScrim.addEventListener("click", () => setSidebar(false));
 elements.graphNavButton.addEventListener("click", () => showGraph(activeTask()?.lastResult || state.result));
-document.querySelectorAll('.nav-item[data-view="policies"], .nav-item[data-view="checkpoints"]').forEach((item) => {
-  item.addEventListener("click", () => {
-    showToast(item.dataset.view === "policies" ? "策略与预算沿用 Controller 安全策略" : "Checkpoint 视图将在持久化阶段开放");
-    setSidebar(false);
-  });
+elements.saveCheckpointBtn.addEventListener("click", saveCurrentCheckpoint);
+document.querySelector('.nav-item[data-view="checkpoints"]').addEventListener("click", () => {
+  showCheckpoints();
+});
+document.querySelector('.nav-item[data-view="policies"]').addEventListener("click", () => {
+  showToast("策略与预算沿用 Controller 安全策略");
+  setSidebar(false);
 });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {

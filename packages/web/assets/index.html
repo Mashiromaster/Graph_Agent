@@ -165,6 +165,20 @@
           </div>
         </section>
 
+        <section class="workspace checkpoints-workspace" id="checkpointsView" aria-label="Checkpoints" hidden>
+          <div class="panel-heading">
+            <div>
+              <h2>Checkpoints</h2>
+              <p id="checkpointsSubtitle">保存当前运行的可续跑 checkpoint,或查看 / 续跑历史记录</p>
+            </div>
+            <button class="secondary-button" id="saveCheckpointBtn" type="button" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"/><path d="M9 3v6h6V3M9 14h6"/></svg>
+              <span>保存当前 Checkpoint</span>
+            </button>
+          </div>
+          <div class="checkpoint-list" id="checkpointList"></div>
+        </section>
+
         <section class="composer-wrap" aria-label="发送消息">
           <form class="composer" id="taskForm">
             <label class="sr-only" for="taskInput">给 Graph Agent 发送消息</label>
