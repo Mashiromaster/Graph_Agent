@@ -20,13 +20,22 @@ import {
   GraphController,
   createControllerPolicy,
   deriveControllerId,
+  parseResumableCheckpoint,
+  resumeController,
   runSnapshotToDict,
   verifyControllerEventChain,
   type ControllerEvent,
   type NodeFactory,
   type NodeRunner,
 } from "@graph-agent/orchestrator";
-import { AgentNode, createAgentSpec, type AgentSpec } from "@graph-agent/node";
+import {
+  AgentNode,
+  SessionBackedMemory,
+  agentSpecFromDict,
+  createAgentSpec,
+  type AgentSpec,
+} from "@graph-agent/node";
+import { FileStorage, type Storage } from "@graph-agent/session";
 import { OpenAICompatibleModel } from "@graph-agent/adapter";
 
 // ── constants ─────────────────────────────────────────────────────────────
@@ -35,6 +44,7 @@ const DEEPSEEK_MODELS = Object.freeze(["deepseek-v4-flash", "deepseek-v4-pro"] a
 export type DeepSeekModel = (typeof DEEPSEEK_MODELS)[number];
 
 const DEEPSEEK_ENDPOINT = "https://api.deepseek.com";
+const DEFAULT_SESSIONS_DIR = ".graph-agent/sessions";
 const API_KEY_MIN = 8;
 const API_KEY_MAX = 1024;
 const CONVERSATION_MAX_ITEMS = 40;
@@ -190,6 +200,7 @@ export interface StudioResult {
   };
   readonly snapshot: Record<string, unknown>;
   readonly task: string;
+  readonly checkpoint: string;
 }
 
 /**
@@ -221,7 +232,11 @@ class RecordedRunner implements NodeRunner {
   }
 }
 
-function deepSeekFactory(provider: DeepSeekConfig): NodeFactory {
+function deepSeekFactory(
+  provider: DeepSeekConfig,
+  storage: Storage,
+  clock?: () => number,
+): NodeFactory {
   return {
     create({ spec, toolNames }) {
       if (toolNames.length > 0) {
@@ -235,9 +250,26 @@ function deepSeekFactory(provider: DeepSeekConfig): NodeFactory {
         maxOutputTokens: 2048,
         extraBody: { thinking: { type: "disabled" } },
       });
-      return new AgentNode({ spec: spec as AgentSpec, model });
+      const memory =
+        clock !== undefined
+          ? new SessionBackedMemory({ storage, clock })
+          : new SessionBackedMemory({ storage });
+      return new AgentNode({ spec: spec as AgentSpec, model, memory });
     },
   };
+}
+
+/** The fixed controller policy shared by fresh runs and resumed runs. */
+function studioControllerPolicy(): ReturnType<typeof createControllerPolicy> {
+  return createControllerPolicy({
+    maxNodes: 5,
+    maxEdges: 8,
+    maxGeneration: 2,
+    maxChildrenPerNode: 2,
+    maxTotalTokens: 32000,
+    maxConcurrency: 2,
+    maxProposalsPerResult: 8,
+  });
 }
 
 /**
@@ -255,17 +287,18 @@ function recordingFactory(inner: NodeFactory, sink: Map<string, StudioNodeResult
 
 export function runStudioGraph(
   input: { task: string; provider: DeepSeekConfig; conversation: readonly ConversationTurn[] },
-  opts?: { factory?: NodeFactory; clock?: () => number },
+  opts?: { factory?: NodeFactory; clock?: () => number; storage?: Storage },
 ): Promise<StudioResult> {
   return runStudioGraphImpl(input, opts);
 }
 
 async function runStudioGraphImpl(
   input: { task: string; provider: DeepSeekConfig; conversation: readonly ConversationTurn[] },
-  opts?: { factory?: NodeFactory; clock?: () => number },
+  opts?: { factory?: NodeFactory; clock?: () => number; storage?: Storage },
 ): Promise<StudioResult> {
   const { task, provider, conversation } = input;
   const clock = opts?.clock;
+  const storage = opts?.storage ?? new FileStorage({ rootDir: DEFAULT_SESSIONS_DIR });
 
   const rootSpec = createAgentSpec({
     identity: createAgentIdentity({
@@ -307,18 +340,10 @@ async function runStudioGraphImpl(
     sessionId: runId,
   });
 
-  const controllerPolicy = createControllerPolicy({
-    maxNodes: 5,
-    maxEdges: 8,
-    maxGeneration: 2,
-    maxChildrenPerNode: 2,
-    maxTotalTokens: 32000,
-    maxConcurrency: 2,
-    maxProposalsPerResult: 8,
-  });
+  const controllerPolicy = studioControllerPolicy();
 
   const nodeResults = new Map<string, StudioNodeResult>();
-  const baseFactory = opts?.factory ?? deepSeekFactory(provider);
+  const baseFactory = opts?.factory ?? deepSeekFactory(provider, storage, clock);
   const factory = recordingFactory(baseFactory, nodeResults);
   const rootRunner = factory.create({ spec: rootSpec, toolNames: [] });
 
@@ -327,6 +352,7 @@ async function runStudioGraphImpl(
   await controller.createRun(runId, rootSpec, rootRunner, rootInput);
   const snapshot = await controller.runUntilIdle(runId);
   const events: readonly ControllerEvent[] = controller.events(runId);
+  const checkpoint = await controller.checkpointResumable(runId);
   const elapsedMs = clock ? clock() - startedAt : performance.now() - startedAt;
 
   const rootResult = nodeResults.get("root");
@@ -354,5 +380,69 @@ async function runStudioGraphImpl(
     },
     snapshot: runSnapshotToDict(snapshot),
     task,
+    checkpoint,
+  };
+}
+
+/**
+ * Resume a run from a v2 resumable checkpoint. Builds a session-backed factory
+ * (or an injected test factory), rehydrates the controller via the
+ * orchestrator's resumeController (bridging the opaque spec back to a node
+ * AgentSpec through agentSpecFromDict), drives it to idle, and assembles the
+ * SAME StudioResult shape as runStudioGraph — including a fresh checkpoint.
+ */
+export async function runResume(
+  checkpointJson: string,
+  provider: DeepSeekConfig,
+  opts?: { storage?: Storage; clock?: () => number; factory?: NodeFactory },
+): Promise<StudioResult> {
+  const clock = opts?.clock;
+  const storage = opts?.storage ?? new FileStorage({ rootDir: DEFAULT_SESSIONS_DIR });
+  const baseFactory = opts?.factory ?? deepSeekFactory(provider, storage, clock);
+
+  const nodeResults = new Map<string, StudioNodeResult>();
+  const factory = recordingFactory(baseFactory, nodeResults);
+
+  const parsed = parseResumableCheckpoint(checkpointJson);
+  const runId = parsed.finalSnapshot.runId;
+
+  const controller = resumeController(checkpointJson, factory, {
+    policy: studioControllerPolicy(),
+    ...(clock !== undefined ? { clock } : {}),
+    rehydrateSpec: agentSpecFromDict,
+  });
+
+  const startedAt = clock ? clock() : performance.now();
+  const snapshot = await controller.runUntilIdle(runId);
+  const events: readonly ControllerEvent[] = controller.events(runId);
+  const checkpoint = await controller.checkpointResumable(runId);
+  const elapsedMs = clock ? clock() - startedAt : performance.now() - startedAt;
+
+  const rootResult = nodeResults.get("root");
+  const nodeResultList = [...nodeResults.values()].sort((a, b) =>
+    a.node_id < b.node_id ? -1 : a.node_id > b.node_id ? 1 : 0,
+  );
+
+  return {
+    controller_event_chain_valid: verifyControllerEventChain(events),
+    elapsed_ms: elapsedMs,
+    event_count: events.length,
+    events: events.map((e) => ({
+      hash: e.eventHash.slice(0, 12),
+      sequence: e.sequence,
+      type: e.type,
+    })),
+    live: true,
+    node_results: nodeResultList,
+    primary_output: rootResult ? rootResult.output : null,
+    provider: {
+      endpoint: DEEPSEEK_ENDPOINT,
+      model: provider.model,
+      thinking: "disabled",
+      type: "deepseek",
+    },
+    snapshot: runSnapshotToDict(snapshot),
+    task: "resume",
+    checkpoint,
   };
 }

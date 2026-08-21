@@ -72,6 +72,7 @@ import {
   settleRun,
   type Claim,
 } from "./scheduler.js";
+import { buildResumableCheckpoint } from "./checkpoint.js";
 
 const CONTROLLER_EVENT_TYPES: readonly ControllerEventType[] = [
   "run_created",
@@ -80,7 +81,7 @@ const CONTROLLER_EVENT_TYPES: readonly ControllerEventType[] = [
   "execution_settled",
 ];
 
-const MAX_CHECKPOINT_BYTES = 5_000_000;
+export const MAX_CHECKPOINT_BYTES = 5_000_000;
 const CHECKPOINT_SCHEMA_VERSION = 1;
 const CHECKPOINT_KEYS = [
   "chainHead",
@@ -494,6 +495,36 @@ export class GraphController {
     }
   }
 
+  // ── checkpointResumable (v2) ─────────────────────────────────────────────────
+
+  /**
+   * v2 可恢复 checkpoint:与 checkpoint() 同样持全局锁读取,但额外携带 resumable
+   * 切片(节点 spec/input/toolNames/reservation/state + 已完成执行的归档结果 +
+   * enqueueSequence),供 Task 4 的 resume 重建可变状态。v1 checkpoint() 完全不受影响。
+   */
+  async checkpointResumable(runId: string): Promise<string> {
+    const release = await this.globalMutex.acquire();
+    try {
+      const entry = this.require(runId);
+      return buildResumableCheckpoint(entry.state, entry.events);
+    } finally {
+      release();
+    }
+  }
+
+  // ── adoptRun (controlled entry for resume) ───────────────────────────────────
+
+  /**
+   * 受控注入一个已重建的运行(state + 事件链)。仅供 Task 4 的 resume 使用:
+   * 若 runId 已存在则抛错,否则登记进 runs。不改动任何其它方法的语义。
+   */
+  adoptRun(runId: string, state: MutableRunState, events: ControllerEvent[]): void {
+    if (this.runs.has(runId)) {
+      throw new Error(`run already exists: ${runId}`);
+    }
+    this.runs.set(runId, { state, events });
+  }
+
   // ── replay (static, pure) ────────────────────────────────────────────────────
 
   /**
@@ -592,7 +623,7 @@ export class GraphController {
  * 复用 createControllerEvent 保证哈希口径一致:任何字段篡改都会导致复算的
  * eventHash 与存储值不符 → 抛错。
  */
-function rebuildEvent(raw: unknown): ControllerEvent {
+export function rebuildEvent(raw: unknown): ControllerEvent {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     throw new SyntaxError("checkpoint event must be an object");
   }

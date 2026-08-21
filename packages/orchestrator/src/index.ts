@@ -72,3 +72,16 @@ export {
 } from "./scheduler.js";
 export type { Claim } from "./scheduler.js";
 export { GraphController } from "./controller.js";
+export {
+  buildResumableCheckpoint,
+  parseResumableCheckpoint,
+} from "./checkpoint.js";
+export type {
+  ResumableCheckpoint,
+  ResumableSlice,
+  ResumableNode,
+  ResumableArchivedResult,
+  ParsedResumableCheckpoint,
+} from "./checkpoint.js";
+export { resumeController } from "./resume.js";
+export type { ResumeOptions } from "./resume.js";

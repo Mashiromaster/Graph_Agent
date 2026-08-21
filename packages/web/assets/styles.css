@@ -314,6 +314,36 @@ kbd {
 .history-item strong { font-size: 12px; font-weight: 580; }
 .history-item span { margin-top: 3px; color: var(--ink-faint); font-size: 10px; }
 
+.checkpoints-workspace { display: flex; flex-direction: column; gap: 14px; padding-bottom: 18px; }
+.checkpoint-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.checkpoint-empty {
+  padding: 32px 18px;
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+}
+.checkpoint-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.checkpoint-item .checkpoint-copy { min-width: 0; }
+.checkpoint-item strong { display: block; font-size: 12px; font-weight: 580; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.checkpoint-item .checkpoint-meta { margin-top: 4px; color: var(--ink-faint); font-size: 10px; }
+.checkpoint-actions { display: flex; gap: 8px; }
+
 .sidebar-footer {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) 10px;

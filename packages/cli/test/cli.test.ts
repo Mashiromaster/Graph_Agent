@@ -52,9 +52,28 @@ describe("graph-agent CLI", () => {
   it("ui calls the injected serve with defaults and --no-browser", async () => {
     const { lines, out } = capture();
     const calls: unknown[][] = [];
-    const fakeServer = {} as ReturnType<typeof import("@graph-agent/web").serve>;
+    // A closeable fake server: it captures runUi's "close" callback and fires it
+    // synchronously on the next microtask so the pending promise runUi returns
+    // resolves to 0 — otherwise `await main(["ui", ...])` would hang forever
+    // (the real server stays listening until closed).
+    let closeCb: (() => void) | undefined;
+    const fakeServer = {
+      on(event: string, cb: () => void) {
+        if (event === "close") {
+          closeCb = cb;
+        }
+        return this;
+      },
+      close() {
+        closeCb?.();
+      },
+    } as unknown as ReturnType<typeof import("@graph-agent/web").serve>;
     const stubServe = ((host: string, port: number, opts?: unknown) => {
       calls.push([host, port, opts]);
+      // Auto-close on the next microtask so runUi's promise resolves; this lets
+      // the test await main without hanging while still proving the server was
+      // started and the listening line was printed first.
+      queueMicrotask(() => fakeServer.close());
       return fakeServer;
     }) as unknown as typeof import("@graph-agent/web").serve;
     const code = await main(["ui", "--no-browser"], out, { serve: stubServe });

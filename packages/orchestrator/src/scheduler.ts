@@ -201,6 +201,12 @@ export function ingestLocked(
     return stored;
   }
 
+  // 归档本次结算的真实 AgentResult(键 = executionId)。此点位于幂等短路之后、
+  // 所有结算分支(fail-closed 非法结果、COMPLETED、FAILED)之前——它们都持有真实
+  // 的 result 对象。settleException(runner 抛异常,无 result)不经此路径,故不归档。
+  // 纯增:不影响预算/决策/事件逻辑,snapshotOf 也不读它。
+  state.archivedResults.set(execution.executionId, result);
+
   const failClosed = (code: string): readonly ProposalDecision[] => {
     // commitFull: reserved -= reserved; committed += reserved.
     state.reservedTokens -= execution.reservedTokens;

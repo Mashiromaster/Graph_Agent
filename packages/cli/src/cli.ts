@@ -282,21 +282,28 @@ function parseUiFlags(argv: readonly string[]): UiParse {
   return { ok: true, flags: { host, port, noBrowser } };
 }
 
-/** Parse flags, launch the (possibly injected) server, return the exit code. */
+/**
+ * Parse flags, launch the (possibly injected) server, and stay pending until it
+ * closes. Returning a promise that resolves only on the server's "close" event
+ * keeps `main` (and thus the process) alive while serving — without it, `main`
+ * resolves immediately and the ESM guard's `process.exit` kills the fresh server.
+ */
 function runUi(
   argv: readonly string[],
   out: (line: string) => void,
   serve: typeof realServe,
-): number {
+): Promise<number> {
   const parsed = parseUiFlags(argv);
   if (!parsed.ok) {
     out(`Error: ${parsed.error}`);
-    return 2;
+    return Promise.resolve(2);
   }
   const { host, port, noBrowser } = parsed.flags;
-  serve(host, port, { openBrowser: !noBrowser });
+  const server = serve(host, port, { openBrowser: !noBrowser });
   out(`Graph Agent Studio listening on http://${host}:${port}`);
-  return 0;
+  return new Promise<number>((resolve) => {
+    server.on("close", () => resolve(0));
+  });
 }
 
 export async function main(

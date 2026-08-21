@@ -16,3 +16,4 @@ awesome-llm-apps/
 
 node_modules/
 packages/*/dist/
+*.tsbuildinfo

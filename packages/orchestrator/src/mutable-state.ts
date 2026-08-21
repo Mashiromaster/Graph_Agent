@@ -27,6 +27,7 @@ import type {
   RunSnapshot,
 } from "./graph-models.js";
 import type { ControllerPolicy } from "./policy.js";
+import type { AgentResult } from "@graph-agent/core";
 
 /**
  * 控制器持有的唯一可变状态。字段可变(非 readonly),集合原地增删;
@@ -47,6 +48,12 @@ export interface MutableRunState {
   executions: Map<string, ExecutionRecord>;
   decisions: ProposalDecision[];
   processedResults: Map<string, readonly ProposalDecision[]>;
+  /**
+   * 每次带真实结果结算的 AgentResult 归档,键为 executionId。纯增字段:
+   * 仅供 v2 resumable checkpoint 携带已完成执行的产物以支持 resume;
+   * snapshotOf 不投影它,SP1-4 的一切既有行为不受影响。
+   */
+  archivedResults: Map<string, AgentResult>;
   nodeReservations: Map<string, number>;
   committedTokens: number;
   reservedTokens: number;
@@ -71,6 +78,7 @@ export function createMutableRunState(
     executions: new Map(),
     decisions: [],
     processedResults: new Map(),
+    archivedResults: new Map(),
     nodeReservations: new Map(),
     committedTokens: 0,
     reservedTokens: 0,
