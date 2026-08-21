@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import { createModelResponse, ScriptedModel } from "@graph-agent/adapter";
 import { AgentNode, type AgentSpec } from "@graph-agent/node";
 import type { NodeFactory } from "@graph-agent/orchestrator";
+import { parseResumableCheckpoint } from "@graph-agent/orchestrator";
+import { InMemoryStorage } from "@graph-agent/session";
 import {
   DeepSeekConfig,
   parseConversation,
+  runResume,
   runStudioGraph,
   type StudioNodeResult,
 } from "../src/studio.js";
@@ -210,5 +213,45 @@ describe("runStudioGraph", () => {
     );
     expect(result.controller_event_chain_valid).toBe(true);
     expect(result.primary_output).toBe("The answer is 42.");
+  });
+
+  it("returns a resumable v2 checkpoint the orchestrator accepts", async () => {
+    const provider = DeepSeekConfig.fromPayload(validProvider());
+    const result = await runStudioGraph(
+      { task: "What is the answer?", provider, conversation: [] },
+      { factory: scriptedFactory(), clock: () => 0, storage: new InMemoryStorage() },
+    );
+    expect(typeof result.checkpoint).toBe("string");
+    const parsed = parseResumableCheckpoint(result.checkpoint);
+    expect(parsed.finalSnapshot.runId).toBe(result.snapshot["runId"]);
+  });
+
+  it("SessionBackedMemory injection does not break the run", async () => {
+    const provider = DeepSeekConfig.fromPayload(validProvider());
+    const result = await runStudioGraph(
+      { task: "What is the answer?", provider, conversation: [] },
+      { factory: scriptedFactory(), clock: () => 0, storage: new InMemoryStorage() },
+    );
+    expect(result.primary_output).toBe("The answer is 42.");
+  });
+});
+
+describe("runResume", () => {
+  it("resumes from a v2 checkpoint and returns a StudioResult", async () => {
+    const provider = DeepSeekConfig.fromPayload(validProvider());
+    const first = await runStudioGraph(
+      { task: "What is the answer?", provider, conversation: [] },
+      { factory: scriptedFactory(), clock: () => 0, storage: new InMemoryStorage() },
+    );
+
+    const resumed = await runResume(first.checkpoint, provider, {
+      storage: new InMemoryStorage(),
+      factory: scriptedFactory(),
+      clock: () => 0,
+    });
+    expect(resumed.controller_event_chain_valid).toBe(true);
+    expect(resumed.snapshot["runId"]).toBe(first.snapshot["runId"]);
+    expect(typeof resumed.checkpoint).toBe("string");
+    expect(() => parseResumableCheckpoint(resumed.checkpoint)).not.toThrow();
   });
 });

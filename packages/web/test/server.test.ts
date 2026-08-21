@@ -201,6 +201,216 @@ describe("serve loopback-only", () => {
   });
 });
 
+// ── checkpoint endpoints ──────────────────────────────────────────────────
+
+interface StubStore {
+  save: (json: string) => Promise<{ id: string; meta: Record<string, unknown> }>;
+  list: () => Promise<Record<string, unknown>[]>;
+  load: (id: string) => Promise<string>;
+}
+
+const STUB_META = {
+  id: "ckpt-1",
+  runId: "r",
+  status: "succeeded",
+  nodeCount: 1,
+  eventCount: 3,
+  createdAt: 0,
+};
+
+function makeStubStore(overrides?: Partial<StubStore>): StubStore {
+  return {
+    save: async (_json: string) => ({ id: "ckpt-1", meta: STUB_META }),
+    list: async () => [STUB_META],
+    load: async (id: string) => {
+      if (id === "ckpt-1") {
+        return "the-checkpoint-json";
+      }
+      throw new Error("no such file");
+    },
+    ...overrides,
+  };
+}
+
+async function stubRunResume(): Promise<StudioResult> {
+  return CANNED;
+}
+
+function makeCheckpointServer(opts?: {
+  store?: StubStore;
+  runResume?: () => Promise<StudioResult>;
+}): Server {
+  return createServer({
+    checkpointStore: (opts?.store ?? makeStubStore()) as never,
+    runResume: (opts?.runResume ?? stubRunResume) as never,
+  });
+}
+
+describe("checkpoint endpoints", () => {
+  let cpServer: Server;
+  let cpBase: string;
+
+  async function start(server: Server): Promise<string> {
+    cpServer = server;
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address() as AddressInfo;
+    return `http://127.0.0.1:${addr.port}`;
+  }
+
+  afterEach(async () => {
+    if (cpServer !== undefined) {
+      await new Promise<void>((resolve) => cpServer.close(() => resolve()));
+    }
+  });
+
+  it("POST /api/checkpoints saves and returns {id, meta}", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ checkpoint: "the-checkpoint-json" }),
+    });
+    expect(res.status).toBe(200);
+    expectSecurityHeaders(res);
+    const body = await res.json();
+    expect(body.id).toBe("ckpt-1");
+    expect(body.meta).toEqual(STUB_META);
+  });
+
+  it("POST /api/checkpoints rejects missing keys with 400", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ nope: 1 }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/checkpoints returns 400 when the store rejects a bad checkpoint", async () => {
+    cpBase = await start(
+      makeCheckpointServer({
+        store: makeStubStore({
+          save: async () => {
+            throw new Error("bogus checkpoint");
+          },
+        }),
+      }),
+    );
+    const res = await fetch(`${cpBase}/api/checkpoints`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ checkpoint: "bad" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/checkpoints blocks cross-site with 403", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" },
+      body: JSON.stringify({ checkpoint: "x" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("GET /api/checkpoints returns the list", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints`);
+    expect(res.status).toBe(200);
+    expectSecurityHeaders(res);
+    const body = await res.json();
+    expect(body.checkpoints).toEqual([STUB_META]);
+  });
+
+  it("GET /api/checkpoints/:id returns {checkpoint}", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints/ckpt-1`);
+    expect(res.status).toBe(200);
+    expectSecurityHeaders(res);
+    const body = await res.json();
+    expect(body.checkpoint).toBe("the-checkpoint-json");
+  });
+
+  it("GET /api/checkpoints/:id returns 404 when absent", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints/missing`);
+    expect(res.status).toBe(404);
+  });
+
+  it("POST /api/checkpoints/resume returns a StudioResult", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "ckpt-1",
+        provider: { type: "deepseek", api_key: VALID_KEY, model: "deepseek-v4-flash" },
+      }),
+    });
+    expect(res.status).toBe(200);
+    expectSecurityHeaders(res);
+    const body = await res.json();
+    expect(body).toEqual(CANNED);
+  });
+
+  it("POST /api/checkpoints/resume rejects missing keys with 400", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "ckpt-1" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/checkpoints/resume rejects a bad provider with 400", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "ckpt-1",
+        provider: { type: "openai", api_key: VALID_KEY, model: "deepseek-v4-flash" },
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/checkpoints/resume returns 400 for an unknown id (load throws)", async () => {
+    cpBase = await start(makeCheckpointServer());
+    const res = await fetch(`${cpBase}/api/checkpoints/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "missing",
+        provider: { type: "deepseek", api_key: VALID_KEY, model: "deepseek-v4-flash" },
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/checkpoints/resume returns 502 when runResume throws", async () => {
+    cpBase = await start(
+      makeCheckpointServer({
+        runResume: async () => {
+          throw new Error("resume failed");
+        },
+      }),
+    );
+    const res = await fetch(`${cpBase}/api/checkpoints/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "ckpt-1",
+        provider: { type: "deepseek", api_key: VALID_KEY, model: "deepseek-v4-flash" },
+      }),
+    });
+    expect(res.status).toBe(502);
+  });
+});
+
 describe("static.ts runtime asset resolution", () => {
   it("reads real index.html bytes", () => {
     const asset = staticFile("/index.html");

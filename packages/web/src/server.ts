@@ -10,22 +10,30 @@
 
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { canonicalJson } from "@graph-agent/core";
+import { FileStorage } from "@graph-agent/session";
 import { staticFile } from "./static.js";
 import {
   DeepSeekConfig,
   parseConversation,
+  runResume as realRunResume,
   runStudioGraph,
   type StudioResult,
 } from "./studio.js";
+import { CheckpointStore } from "./checkpoint-store.js";
 
 type RunGraph = typeof runStudioGraph;
+type RunResume = typeof realRunResume;
 
 const MODELS = Object.freeze(["deepseek-v4-flash", "deepseek-v4-pro"]);
 const MAX_BODY_BYTES = 64000;
+const MAX_CHECKPOINT_BODY_BYTES = 6_000_000;
 const TASK_MAX = 2000;
 const MAX_CONCURRENCY = 2;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 const BODY_KEYS = ["conversation", "provider", "task"] as const;
+const CHECKPOINT_SAVE_KEYS = ["checkpoint"] as const;
+const RESUME_KEYS = ["id", "provider"] as const;
+const DEFAULT_CHECKPOINT_DIR = ".graph-agent/checkpoints";
 
 const SECURITY_HEADERS: Readonly<Record<string, string>> = Object.freeze({
   "Cache-Control": "no-store",
@@ -225,9 +233,136 @@ async function handleRun(
   }
 }
 
+/** POST /api/checkpoints — save a checkpoint. Validation/bad checkpoint → 400. */
+async function handleCheckpointSave(
+  req: IncomingMessage,
+  res: ServerResponse,
+  store: CheckpointStore,
+): Promise<void> {
+  if (req.headers["sec-fetch-site"] === "cross-site") {
+    sendJson(res, 403, { error: "Cross-site request blocked" });
+    return;
+  }
+  const contentType = String(req.headers["content-type"] ?? "");
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    sendJson(res, 415, { error: "Content-Type must be application/json" });
+    return;
+  }
+  let raw: string;
+  try {
+    raw = await readBody(req, MAX_CHECKPOINT_BODY_BYTES);
+  } catch {
+    sendJson(res, 413, { error: "Request body size out of bounds" });
+    return;
+  }
+  try {
+    const body = strictParseObject(raw);
+    if (!hasExactKeys(body, CHECKPOINT_SAVE_KEYS)) {
+      throw new Error("body must have exactly keys {checkpoint}");
+    }
+    const checkpoint = body["checkpoint"];
+    if (typeof checkpoint !== "string") {
+      throw new Error("checkpoint must be a string");
+    }
+    const { id, meta } = await store.save(checkpoint);
+    sendJson(res, 200, { id, meta });
+  } catch (err) {
+    sendJson(res, 400, { error: err instanceof Error ? err.message : "invalid request" });
+  }
+}
+
+/** GET /api/checkpoints — list all checkpoint metas. */
+async function handleCheckpointList(res: ServerResponse, store: CheckpointStore): Promise<void> {
+  const checkpoints = await store.list();
+  sendJson(res, 200, { checkpoints });
+}
+
+/** GET /api/checkpoints/{id} — load one checkpoint by id → {checkpoint} / 404. */
+async function handleCheckpointGet(
+  res: ServerResponse,
+  store: CheckpointStore,
+  id: string,
+): Promise<void> {
+  if (id.length === 0) {
+    sendJson(res, 404, { error: "Not found" });
+    return;
+  }
+  try {
+    const checkpoint = await store.load(id);
+    sendJson(res, 200, { checkpoint });
+  } catch {
+    sendJson(res, 404, { error: "Not found" });
+  }
+}
+
+/** POST /api/checkpoints/resume — load + resume. Validation → 400; run throw → 502. */
+async function handleCheckpointResume(
+  req: IncomingMessage,
+  res: ServerResponse,
+  semaphore: Semaphore,
+  store: CheckpointStore,
+  runResume: RunResume,
+): Promise<void> {
+  if (req.headers["sec-fetch-site"] === "cross-site") {
+    sendJson(res, 403, { error: "Cross-site request blocked" });
+    return;
+  }
+  const contentType = String(req.headers["content-type"] ?? "");
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    sendJson(res, 415, { error: "Content-Type must be application/json" });
+    return;
+  }
+  if (!semaphore.tryAcquire()) {
+    sendJson(res, 429, { error: "服务繁忙,请稍后重试" });
+    return;
+  }
+  try {
+    let raw: string;
+    try {
+      raw = await readBody(req, MAX_BODY_BYTES);
+    } catch {
+      sendJson(res, 413, { error: "Request body size out of bounds" });
+      return;
+    }
+    let result: StudioResult;
+    try {
+      const body = strictParseObject(raw);
+      if (!hasExactKeys(body, RESUME_KEYS)) {
+        throw new Error("body must have exactly keys {id, provider}");
+      }
+      const id = body["id"];
+      if (typeof id !== "string" || id.length === 0) {
+        throw new Error("id must be a non-empty string");
+      }
+      const provider = DeepSeekConfig.fromPayload(body["provider"]);
+      let checkpointJson: string;
+      try {
+        checkpointJson = await store.load(id);
+      } catch {
+        throw new Error("checkpoint not found");
+      }
+      // ── run (throw → 502) ──────────────────────────────────────────────────
+      try {
+        result = await runResume(checkpointJson, provider);
+      } catch {
+        sendJson(res, 502, { error: "图执行失败" });
+        return;
+      }
+    } catch (err) {
+      sendJson(res, 400, { error: err instanceof Error ? err.message : "invalid request" });
+      return;
+    }
+    sendJson(res, 200, result);
+  } finally {
+    semaphore.release();
+  }
+}
+
 function requestHandler(
   runGraph: RunGraph,
   semaphore: Semaphore,
+  store: CheckpointStore,
+  runResume: RunResume,
 ): (req: IncomingMessage, res: ServerResponse) => void {
   return (req, res) => {
     void (async () => {
@@ -247,6 +382,23 @@ function requestHandler(
 
       if (method === "POST" && pathname === "/api/runs") {
         await handleRun(req, res, semaphore, runGraph);
+        return;
+      }
+      if (method === "POST" && pathname === "/api/checkpoints") {
+        await handleCheckpointSave(req, res, store);
+        return;
+      }
+      if (method === "POST" && pathname === "/api/checkpoints/resume") {
+        await handleCheckpointResume(req, res, semaphore, store, runResume);
+        return;
+      }
+      if (method === "GET" && pathname === "/api/checkpoints") {
+        await handleCheckpointList(res, store);
+        return;
+      }
+      if (method === "GET" && pathname.startsWith("/api/checkpoints/")) {
+        const id = decodeURIComponent(pathname.slice("/api/checkpoints/".length));
+        await handleCheckpointGet(res, store, id);
         return;
       }
       if (method === "POST") {
@@ -273,10 +425,18 @@ function requestHandler(
   };
 }
 
-export function createServer(opts?: { runGraph?: RunGraph }): Server {
+export function createServer(opts?: {
+  runGraph?: RunGraph;
+  checkpointStore?: CheckpointStore;
+  runResume?: RunResume;
+}): Server {
   const runGraph = opts?.runGraph ?? runStudioGraph;
+  const store =
+    opts?.checkpointStore ??
+    new CheckpointStore({ storage: new FileStorage({ rootDir: DEFAULT_CHECKPOINT_DIR }) });
+  const runResume = opts?.runResume ?? realRunResume;
   const semaphore = new Semaphore(MAX_CONCURRENCY);
-  return createHttpServer(requestHandler(runGraph, semaphore));
+  return createHttpServer(requestHandler(runGraph, semaphore, store, runResume));
 }
 
 export function serve(
