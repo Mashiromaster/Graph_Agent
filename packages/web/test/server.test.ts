@@ -21,7 +21,7 @@ const CANNED: StudioResult = {
     },
   ],
   primary_output: "canned",
-  provider: { endpoint: "https://api.deepseek.com", model: "deepseek-v4-flash", thinking: "disabled", type: "deepseek" },
+  provider: { endpoint: "https://api.deepseek.com", model: "deepseek-v4-flash", thinking: "harness-managed", type: "deepseek" },
   snapshot: { runId: "r", nodes: [] },
   task: "t",
 };

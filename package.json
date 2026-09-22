@@ -2,11 +2,13 @@
   "name": "graph-agent",
   "private": true,
   "type": "module",
+  "engines": { "node": ">=20" },
   "workspaces": ["packages/*"],
   "scripts": {
-    "build": "npm run -ws --if-present build",
+    "build": "npm run --workspaces --if-present build",
     "test": "vitest run",
-    "typecheck": "npm run -ws --if-present typecheck"
+    "typecheck": "npm run --workspaces --if-present typecheck",
+    "smoke:harness": "npm run build && node scripts/harness-smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^20",

@@ -176,7 +176,7 @@ describe("runStudioGraph", () => {
     expect(result.provider).toEqual({
       endpoint: "https://api.deepseek.com",
       model: "deepseek-v4-flash",
-      thinking: "disabled",
+      thinking: "harness-managed",
       type: "deepseek",
     });
     // snapshot present with root node.
@@ -226,7 +226,7 @@ describe("runStudioGraph", () => {
     expect(parsed.finalSnapshot.runId).toBe(result.snapshot["runId"]);
   });
 
-  it("SessionBackedMemory injection does not break the run", async () => {
+  it("keeps the legacy storage option compatible for injected native runners", async () => {
     const provider = DeepSeekConfig.fromPayload(validProvider());
     const result = await runStudioGraph(
       { task: "What is the answer?", provider, conversation: [] },

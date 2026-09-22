@@ -29,14 +29,12 @@ import {
   type NodeRunner,
 } from "@graph-agent/orchestrator";
 import {
-  AgentNode,
-  SessionBackedMemory,
   agentSpecFromDict,
   createAgentSpec,
   type AgentSpec,
 } from "@graph-agent/node";
-import { FileStorage, type Storage } from "@graph-agent/session";
-import { OpenAICompatibleModel } from "@graph-agent/adapter";
+import { type Storage } from "@graph-agent/session";
+import { DeepSeekHarnessNode } from "@graph-agent/harness";
 
 // ── constants ─────────────────────────────────────────────────────────────
 
@@ -44,7 +42,6 @@ const DEEPSEEK_MODELS = Object.freeze(["deepseek-v4-flash", "deepseek-v4-pro"] a
 export type DeepSeekModel = (typeof DEEPSEEK_MODELS)[number];
 
 const DEEPSEEK_ENDPOINT = "https://api.deepseek.com";
-const DEFAULT_SESSIONS_DIR = ".graph-agent/sessions";
 const API_KEY_MIN = 8;
 const API_KEY_MAX = 1024;
 const CONVERSATION_MAX_ITEMS = 40;
@@ -234,7 +231,6 @@ class RecordedRunner implements NodeRunner {
 
 function deepSeekFactory(
   provider: DeepSeekConfig,
-  storage: Storage,
   clock?: () => number,
 ): NodeFactory {
   return {
@@ -242,19 +238,31 @@ function deepSeekFactory(
       if (toolNames.length > 0) {
         throw new Error("DeepSeek Studio does not expose local tools");
       }
-      const model = new OpenAICompatibleModel({
-        model: provider.model,
+      const expanded = spec as Partial<AgentSpec>;
+      const harnessSpec =
+        typeof expanded.instructions === "string" && expanded.policy !== undefined
+          ? (spec as AgentSpec)
+          : createAgentSpec({
+              identity: spec.identity,
+              budget: spec.budget,
+              role: spec.role ?? spec.identity.role,
+              instructions:
+                `You are a focused ${spec.role ?? spec.identity.role} sub-agent. ` +
+                "Complete the delegated objective, report concrete findings, and propose another child only when it materially improves the answer.",
+              policy: {
+                maxGeneration: 2,
+                maxChildren: 2,
+                allowDirectMessages: false,
+                allowSkipContext: false,
+              },
+            });
+      return new DeepSeekHarnessNode({
+        spec: harnessSpec,
         apiKey: provider.apiKey,
-        baseUrl: DEEPSEEK_ENDPOINT,
-        timeoutSeconds: 90,
-        maxOutputTokens: 2048,
-        extraBody: { thinking: { type: "disabled" } },
+        model: provider.model,
+        availableToolNames: toolNames,
+        ...(clock !== undefined ? { clock } : {}),
       });
-      const memory =
-        clock !== undefined
-          ? new SessionBackedMemory({ storage, clock })
-          : new SessionBackedMemory({ storage });
-      return new AgentNode({ spec: spec as AgentSpec, model, memory });
     },
   };
 }
@@ -298,7 +306,6 @@ async function runStudioGraphImpl(
 ): Promise<StudioResult> {
   const { task, provider, conversation } = input;
   const clock = opts?.clock;
-  const storage = opts?.storage ?? new FileStorage({ rootDir: DEFAULT_SESSIONS_DIR });
 
   const rootSpec = createAgentSpec({
     identity: createAgentIdentity({
@@ -343,7 +350,7 @@ async function runStudioGraphImpl(
   const controllerPolicy = studioControllerPolicy();
 
   const nodeResults = new Map<string, StudioNodeResult>();
-  const baseFactory = opts?.factory ?? deepSeekFactory(provider, storage, clock);
+  const baseFactory = opts?.factory ?? deepSeekFactory(provider, clock);
   const factory = recordingFactory(baseFactory, nodeResults);
   const rootRunner = factory.create({ spec: rootSpec, toolNames: [] });
 
@@ -375,7 +382,7 @@ async function runStudioGraphImpl(
     provider: {
       endpoint: DEEPSEEK_ENDPOINT,
       model: provider.model,
-      thinking: "disabled",
+      thinking: "harness-managed",
       type: "deepseek",
     },
     snapshot: runSnapshotToDict(snapshot),
@@ -385,7 +392,7 @@ async function runStudioGraphImpl(
 }
 
 /**
- * Resume a run from a v2 resumable checkpoint. Builds a session-backed factory
+ * Resume a run from a v2 resumable checkpoint. Builds a Harness-backed factory
  * (or an injected test factory), rehydrates the controller via the
  * orchestrator's resumeController (bridging the opaque spec back to a node
  * AgentSpec through agentSpecFromDict), drives it to idle, and assembles the
@@ -397,8 +404,7 @@ export async function runResume(
   opts?: { storage?: Storage; clock?: () => number; factory?: NodeFactory },
 ): Promise<StudioResult> {
   const clock = opts?.clock;
-  const storage = opts?.storage ?? new FileStorage({ rootDir: DEFAULT_SESSIONS_DIR });
-  const baseFactory = opts?.factory ?? deepSeekFactory(provider, storage, clock);
+  const baseFactory = opts?.factory ?? deepSeekFactory(provider, clock);
 
   const nodeResults = new Map<string, StudioNodeResult>();
   const factory = recordingFactory(baseFactory, nodeResults);
@@ -438,7 +444,7 @@ export async function runResume(
     provider: {
       endpoint: DEEPSEEK_ENDPOINT,
       model: provider.model,
-      thinking: "disabled",
+      thinking: "harness-managed",
       type: "deepseek",
     },
     snapshot: runSnapshotToDict(snapshot),

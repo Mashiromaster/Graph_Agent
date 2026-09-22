@@ -11,6 +11,7 @@
     "@graph-agent/core": "*",
     "@graph-agent/orchestrator": "*",
     "@graph-agent/node": "*",
+    "@graph-agent/harness": "*",
     "@graph-agent/session": "*",
     "@graph-agent/adapter": "*"
   }

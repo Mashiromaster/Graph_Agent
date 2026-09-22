@@ -507,7 +507,7 @@ function checkpointToResult(checkpointJson) {
     provider: state.result?.provider ?? {
       endpoint: "https://api.deepseek.com",
       model: state.provider.model,
-      thinking: "disabled",
+      thinking: "harness-managed",
       type: "deepseek",
     },
     snapshot,
