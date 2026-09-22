@@ -402,6 +402,10 @@ export class DeepSeekHarnessNode implements NodeRunner {
           new HarnessStop("token_budget_exceeded", "The node exceeded its token budget.", false),
         );
       }
+      const terminalStop = terminalHarnessStop(events);
+      if (terminalStop !== null) {
+        return this.failure(recorder, collector, usage, terminalStop);
+      }
       if (
         usageSummary.assistantMessages === 0 ||
         usageSummary.usageMessages !== usageSummary.assistantMessages
@@ -416,10 +420,6 @@ export class DeepSeekHarnessNode implements NodeRunner {
             true,
           ),
         );
-      }
-      const terminalStop = terminalHarnessStop(events);
-      if (terminalStop !== null) {
-        return this.failure(recorder, collector, usage, terminalStop);
       }
       if (result.finalResponse.trim().length === 0) {
         return this.failure(

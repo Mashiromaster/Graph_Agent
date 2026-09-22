@@ -157,6 +157,30 @@ class ModelErrorRuntime implements HarnessRuntime {
   async close(): Promise<void> {}
 }
 
+class ModelErrorWithoutUsageRuntime implements HarnessRuntime {
+  async run(_input: string, options: HarnessRunOptions): Promise<RunResult> {
+    const events = [
+      { type: "turn/start", data: { turn: 1 } },
+      {
+        type: "turn/end",
+        data: {
+          turn: 1,
+          reason: { kind: "error", error: { code: "AUTH", message: "raw provider error" } },
+        },
+      },
+    ];
+    for (const event of events) options.onNotification?.(notification(event));
+    return {
+      sessionId: options.sessionId,
+      finalResponse: "",
+      events,
+      notifications: [],
+    } as unknown as RunResult;
+  }
+
+  async close(): Promise<void> {}
+}
+
 class FailedProposalRuntime implements HarnessRuntime {
   async run(_input: string, options: HarnessRunOptions): Promise<RunResult> {
     const events = [
@@ -329,6 +353,27 @@ describe("DeepSeekHarnessNode", () => {
       retryable: true,
     });
     expect(JSON.stringify(result)).not.toContain("secret raw error");
+    expect(verifyEventChain(result.events)).toBe(true);
+  });
+
+  it("classifies a provider failure before requiring success-only usage accounting", async () => {
+    const node = new DeepSeekHarnessNode({
+      spec: testSpec(),
+      apiKey: "sk-invalid-test-key",
+      model: "deepseek-v4-flash",
+      runtimeFactory: () => new ModelErrorWithoutUsageRuntime(),
+      clock: () => 0,
+    });
+
+    const result = await node.run(createAgentInput({ task: "fail authentication" }));
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toEqual({
+      code: "model_error",
+      message: "DeepSeek Harness reported a model execution error.",
+      retryable: true,
+    });
+    expect(JSON.stringify(result)).not.toContain("raw provider error");
     expect(verifyEventChain(result.events)).toBe(true);
   });
 

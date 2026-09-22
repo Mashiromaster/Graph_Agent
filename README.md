@@ -114,7 +114,7 @@ console.log(result.output, result.spawnProposals);
 ## 测试与构建
 
 ```bash
-npm test                              # vitest run,全 8 包(540 用例)
+npm test                              # vitest run,全 8 包(541 用例)
 npx vitest run packages/<pkg>/        # 单包
 npm run build                         # tsc 全 workspace(严格模式)
 npm run typecheck
