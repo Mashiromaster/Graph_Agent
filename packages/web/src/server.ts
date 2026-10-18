@@ -11,9 +11,11 @@
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { canonicalJson } from "@graph-agent/core";
 import { FileStorage } from "@graph-agent/session";
+import { PROVIDERS, providerSpec } from "@graph-agent/adapter";
 import { staticFile } from "./static.js";
 import {
-  DeepSeekConfig,
+  DEFAULT_PROVIDER_TYPE,
+  ProviderConfig,
   parseConversation,
   runResume as realRunResume,
   runStudioGraph,
@@ -24,7 +26,28 @@ import { CheckpointStore } from "./checkpoint-store.js";
 type RunGraph = typeof runStudioGraph;
 type RunResume = typeof realRunResume;
 
-const MODELS = Object.freeze(["deepseek-v4-flash", "deepseek-v4-pro"]);
+/**
+ * Provider catalog served to the UI so the client never hardcodes a model list.
+ * `suggestedModels` are hints for the picker, not an admission allowlist — the
+ * server validates model ids by format (see ProviderConfig.fromPayload).
+ */
+const PROVIDER_CATALOG = Object.freeze(
+  Object.values(PROVIDERS).map((spec) =>
+    Object.freeze({
+      type: spec.type,
+      label: spec.label,
+      base_url: spec.baseUrl,
+      requires_api_key: spec.requiresApiKey,
+      requires_base_url: spec.baseUrl === null,
+      suggested_models: spec.suggestedModels,
+    }),
+  ),
+);
+
+/** Suggested models for the default provider, kept for backwards compatibility. */
+const MODELS = Object.freeze([
+  ...(providerSpec(DEFAULT_PROVIDER_TYPE)?.suggestedModels ?? []),
+]);
 const MAX_BODY_BYTES = 64000;
 const MAX_CHECKPOINT_BODY_BYTES = 6_000_000;
 const TASK_MAX = 2000;
@@ -218,7 +241,7 @@ async function handleRun(
         throw new Error(`task length must be 1..${TASK_MAX}`);
       }
       const conversation = parseConversation(body["conversation"]);
-      const provider = DeepSeekConfig.fromPayload(body["provider"]);
+      const provider = ProviderConfig.fromPayload(body["provider"]);
       // ── run (throw → 502) ──────────────────────────────────────────────────
       try {
         result = await runGraph({ task, provider, conversation });
@@ -339,7 +362,7 @@ async function handleCheckpointResume(
         // Reject any non-hex id (traversal/escape) before load/runResume.
         throw new Error("id must be a 64-char lowercase hex string");
       }
-      const provider = DeepSeekConfig.fromPayload(body["provider"]);
+      const provider = ProviderConfig.fromPayload(body["provider"]);
       let checkpointJson: string;
       try {
         checkpointJson = await store.load(id);
@@ -378,7 +401,8 @@ function requestHandler(
       if (method === "GET" && pathname === "/api/health") {
         sendJson(res, 200, {
           models: MODELS,
-          provider: "deepseek",
+          provider: DEFAULT_PROVIDER_TYPE,
+          providers: PROVIDER_CATALOG,
           service: "graph-agent-studio",
           status: "ok",
         });

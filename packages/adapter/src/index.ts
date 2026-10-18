@@ -21,4 +21,12 @@ export {
   ModelTransportError,
 } from "./transport.js";
 export type { JSONTransport } from "./transport.js";
-export { OpenAICompatibleModel } from "./openai-compatible.js";
+export { OpenAICompatibleModel, validateBaseUrl } from "./openai-compatible.js";
+export {
+  PROVIDERS,
+  assertModelId,
+  createProviderModel,
+  providerSpec,
+  providerTypes,
+} from "./providers.js";
+export type { ProviderSpec } from "./providers.js";

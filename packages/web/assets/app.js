@@ -3,8 +3,11 @@ const state = {
   activeTaskId: null,
   provider: {
     apiKey: "",
-    model: "deepseek-v4-flash",
+    baseUrl: "",
+    model: "",
+    type: "",
   },
+  providerCatalog: [],
   result: null,
   running: false,
   runningTaskId: null,
@@ -48,7 +51,13 @@ const elements = {
   inspectorEmpty: document.querySelector("#inspectorEmpty"),
   inspectorStatus: document.querySelector("#inspectorStatus"),
   messageList: document.querySelector("#messageList"),
-  modelSelect: document.querySelector("#modelSelect"),
+  modelInput: document.querySelector("#modelInput"),
+  modelSuggestions: document.querySelector("#modelSuggestions"),
+  apiKeyField: document.querySelector("#apiKeyField"),
+  baseUrlField: document.querySelector("#baseUrlField"),
+  baseUrlInput: document.querySelector("#baseUrlInput"),
+  providerNote: document.querySelector("#providerNote"),
+  providerSelect: document.querySelector("#providerSelect"),
   nodeLayer: document.querySelector("#nodeLayer"),
   nodeMetric: document.querySelector("#nodeMetric"),
   pageTitle: document.querySelector("#pageTitle"),
@@ -121,7 +130,7 @@ function syncHeader() {
   const task = activeTask();
   elements.pageTitle.textContent = task ? task.title : "新对话";
   if (state.running && state.runningTaskId === state.activeTaskId) {
-    elements.runStateLabel.textContent = `DeepSeek ${state.provider.model} 推理中`;
+    elements.runStateLabel.textContent = `${providerLabel()} ${state.provider.model} 推理中`;
   } else if (task?.status === "succeeded") {
     elements.runStateLabel.textContent = "对话已更新";
   } else if (task?.status === "failed") {
@@ -147,9 +156,9 @@ function conversationForRequest(messages) {
 async function runTask(taskText) {
   const normalized = taskText.trim();
   if (!normalized || state.running) return;
-  if (!state.provider.apiKey) {
+  if (!providerReady()) {
     openProviderDialog();
-    showToast("请先配置 DeepSeek API Key", true);
+    showToast("请先配置模型服务商", true);
     return;
   }
 
@@ -172,11 +181,7 @@ async function runTask(taskText) {
       body: JSON.stringify({
         conversation,
         task: normalized,
-        provider: {
-          type: "deepseek",
-          api_key: state.provider.apiKey,
-          model: state.provider.model,
-        },
+        provider: providerPayload(),
       }),
     });
     const payload = await response.json();
@@ -187,7 +192,7 @@ async function runTask(taskText) {
       ? payload.primary_output.trim()
       : succeeded
         ? "本轮执行完成，但主 Agent 没有返回文本。可以打开执行图检查各节点输出。"
-        : "本轮 Agent 执行失败，请检查 DeepSeek API Key、账户额度或网络后重试。";
+        : "本轮 Agent 执行失败，请检查 API Key、账户额度或网络后重试。";
     task.messages.push({
       content: output,
       error: !succeeded,
@@ -202,7 +207,7 @@ async function runTask(taskText) {
     if (succeeded) {
       showToast(`回复完成 · ${payload.snapshot.nodes.length} 个节点 · ${formatDuration(payload.elapsed_ms)}`);
     } else {
-      showToast("DeepSeek 调用失败，请检查 API Key、账户余额或网络", true);
+      showToast("模型调用失败，请检查 API Key、账户余额或网络", true);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "运行失败";
@@ -505,10 +510,10 @@ function checkpointToResult(checkpointJson) {
     node_results: nodeResults,
     primary_output: rootArchived ? rootArchived.output : null,
     provider: state.result?.provider ?? {
-      endpoint: "https://api.deepseek.com",
+      endpoint: currentProviderSpec()?.base_url ?? state.provider.baseUrl,
       model: state.provider.model,
       thinking: "harness-managed",
-      type: "deepseek",
+      type: state.provider.type,
     },
     snapshot,
     task: "(已保存的 checkpoint)",
@@ -531,9 +536,9 @@ async function viewCheckpoint(id) {
 }
 
 async function resumeCheckpoint(id) {
-  if (!state.provider.apiKey) {
+  if (!providerReady()) {
     openProviderDialog();
-    showToast("续跑需要先配置 DeepSeek API Key", true);
+    showToast("续跑需要先配置模型服务商", true);
     return;
   }
   const task = createTask("续跑 checkpoint");
@@ -546,11 +551,7 @@ async function resumeCheckpoint(id) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id,
-        provider: {
-          type: "deepseek",
-          api_key: state.provider.apiKey,
-          model: state.provider.model,
-        },
+        provider: providerPayload(),
       }),
     });
     const payload = await response.json();
@@ -694,7 +695,7 @@ function renderInspector() {
     const totalTokens = nodeResult.usage.input_tokens + nodeResult.usage.output_tokens;
     elements.agentUsage.textContent = `${formatNumber(totalTokens)} tokens`;
     elements.agentOutput.textContent = nodeResult.output
-      || (nodeResult.error ? "模型执行失败，请检查 DeepSeek 配置后重试。" : "节点未返回文本输出。已按状态记录完成。");
+      || (nodeResult.error ? "模型执行失败，请检查模型配置后重试。" : "节点未返回文本输出。已按状态记录完成。");
   } else {
     elements.agentUsage.textContent = "—";
     elements.agentOutput.textContent = "尚未采集到该节点的运行结果。";
@@ -771,8 +772,49 @@ function showToast(message, error = false) {
   }, 2600);
 }
 
+/** The catalog entry for the currently selected provider, or null. */
+function currentProviderSpec() {
+  return state.providerCatalog.find((p) => p.type === state.provider.type) ?? null;
+}
+
+/** Display name for the selected provider, falling back before the catalog loads. */
+function providerLabel() {
+  return currentProviderSpec()?.label ?? "模型";
+}
+
+/** Show the api-key / base-url fields that the selected provider needs. */
+function syncProviderFields() {
+  const spec = currentProviderSpec();
+  elements.apiKeyField.hidden = spec ? !spec.requires_api_key : false;
+  elements.baseUrlField.hidden = spec ? !spec.requires_base_url : true;
+  elements.modelSuggestions.replaceChildren(
+    ...(spec?.suggested_models ?? []).map((m) => {
+      const option = document.createElement("option");
+      option.value = m;
+      return option;
+    }),
+  );
+  if (spec) {
+    elements.modelInput.placeholder = spec.suggested_models[0] ?? "";
+    elements.providerNote.textContent = spec.requires_base_url
+      ? "指向本地推理服务（Ollama / vLLM / LM Studio）；仅开放图提议工具，不开放 Shell 或文件系统。"
+      : `由 ${spec.label} 驱动；只开放图提议工具，不开放 Shell 或文件系统，并会消耗你的 ${spec.label} 账户额度。`;
+  }
+}
+
 function openProviderDialog() {
-  elements.modelSelect.value = state.provider.model;
+  elements.providerSelect.replaceChildren(
+    ...state.providerCatalog.map((p) => {
+      const option = document.createElement("option");
+      option.value = p.type;
+      option.textContent = p.label;
+      return option;
+    }),
+  );
+  elements.providerSelect.value = state.provider.type;
+  elements.modelInput.value = state.provider.model;
+  elements.baseUrlInput.value = state.provider.baseUrl;
+  syncProviderFields();
   elements.apiKeyInput.value = "";
   elements.apiKeyInput.type = "password";
   elements.apiKeyInput.placeholder = state.provider.apiKey ? "已配置；留空可保留当前密钥" : "sk-…";
@@ -782,32 +824,91 @@ function openProviderDialog() {
 }
 
 function updateProviderUI() {
-  const connected = Boolean(state.provider.apiKey);
+  const spec = currentProviderSpec();
+  const label = spec?.label ?? "模型";
+  // `local` needs no key, so readiness is "configured", not "has a key".
+  const connected = providerReady();
   elements.providerButton.classList.toggle("connected", connected);
-  elements.providerLabel.textContent = connected ? "DeepSeek 已连接" : "配置 DeepSeek API";
+  elements.providerLabel.textContent = connected ? `${label} 已连接` : `配置${label} API`;
   elements.providerModelLabel.textContent = state.provider.model;
-  elements.providerSidebarStatus.textContent = connected ? "DeepSeek 已连接" : "DeepSeek 未连接";
-  elements.providerButton.setAttribute("aria-label", connected ? "修改 DeepSeek 连接" : "配置 DeepSeek API");
+  elements.providerSidebarStatus.textContent = connected ? `${label} 已连接` : `${label} 未连接`;
+  elements.providerButton.setAttribute(
+    "aria-label",
+    connected ? `修改 ${label} 连接` : `配置 ${label} API`,
+  );
+}
+
+/** True when the selected provider has everything it needs to run. */
+function providerReady() {
+  const spec = currentProviderSpec();
+  if (spec === null || !state.provider.model) return false;
+  if (spec.requires_api_key && !state.provider.apiKey) return false;
+  if (spec.requires_base_url && !state.provider.baseUrl) return false;
+  return true;
+}
+
+/** The provider block sent on the wire. */
+function providerPayload() {
+  const spec = currentProviderSpec();
+  return {
+    type: state.provider.type,
+    model: state.provider.model,
+    ...(spec?.requires_api_key ? { api_key: state.provider.apiKey } : {}),
+    ...(spec?.requires_base_url ? { base_url: state.provider.baseUrl } : {}),
+  };
 }
 
 function saveProvider(event) {
   event.preventDefault();
+  const selectedType = elements.providerSelect.value;
+  const spec = state.providerCatalog.find((p) => p.type === selectedType) ?? null;
+  if (spec === null) {
+    showToast("请选择服务商", true);
+    return;
+  }
+
+  const model = elements.modelInput.value.trim();
+  if (!model) {
+    showToast("请输入模型名", true);
+    elements.modelInput.focus();
+    return;
+  }
+  if (!/^[A-Za-z0-9._:-]+$/.test(model)) {
+    showToast("模型名只能包含字母、数字、点、下划线、冒号或连字符", true);
+    elements.modelInput.focus();
+    return;
+  }
+
   const enteredKey = elements.apiKeyInput.value;
   if (enteredKey && (enteredKey !== enteredKey.trim() || enteredKey.length < 8)) {
     showToast("API Key 格式无效，请检查首尾空格", true);
     elements.apiKeyInput.focus();
     return;
   }
-  if (!enteredKey && !state.provider.apiKey) {
-    showToast("请输入 DeepSeek API Key", true);
+  // Switching provider invalidates the old key: keys are not interchangeable.
+  const keyCarriesOver = selectedType === state.provider.type;
+  if (spec.requires_api_key && !enteredKey && !(keyCarriesOver && state.provider.apiKey)) {
+    showToast(`请输入 ${spec.label} API Key`, true);
     elements.apiKeyInput.focus();
     return;
   }
+
+  const baseUrl = elements.baseUrlInput.value.trim();
+  if (spec.requires_base_url && !baseUrl) {
+    showToast("请输入服务地址", true);
+    elements.baseUrlInput.focus();
+    return;
+  }
+
+  state.provider.type = selectedType;
+  state.provider.model = model;
+  state.provider.baseUrl = spec.requires_base_url ? baseUrl : "";
   if (enteredKey) state.provider.apiKey = enteredKey;
-  state.provider.model = elements.modelSelect.value;
+  else if (!keyCarriesOver || !spec.requires_api_key) state.provider.apiKey = "";
+
   updateProviderUI();
   elements.providerDialog.close();
-  showToast(`已连接 ${state.provider.model} · 密钥未落盘`);
+  showToast(`已连接 ${spec.label} ${state.provider.model} · 密钥未落盘`);
   elements.taskInput.focus();
 }
 
@@ -816,7 +917,7 @@ function clearProvider() {
   elements.apiKeyInput.value = "";
   updateProviderUI();
   elements.providerDialog.close();
-  showToast("DeepSeek API Key 已从页面内存清除");
+  showToast("API Key 已从页面内存清除");
 }
 
 function setSidebar(open) {
@@ -882,6 +983,13 @@ document.querySelector("#resetButton").addEventListener("click", resetGraphSelec
 elements.exportButton.addEventListener("click", exportSnapshot);
 elements.providerButton.addEventListener("click", openProviderDialog);
 elements.providerForm.addEventListener("submit", saveProvider);
+// Switching provider re-scopes which fields apply and which models to suggest.
+elements.providerSelect.addEventListener("change", () => {
+  const spec = state.providerCatalog.find((p) => p.type === elements.providerSelect.value) ?? null;
+  state.provider.type = elements.providerSelect.value;
+  elements.modelInput.value = spec?.suggested_models[0] ?? "";
+  syncProviderFields();
+});
 document.querySelector("#providerDialogClose").addEventListener("click", () => elements.providerDialog.close());
 document.querySelector("#clearApiKey").addEventListener("click", clearProvider);
 document.querySelector("#toggleApiKey").addEventListener("click", (event) => {
@@ -923,6 +1031,18 @@ fetch("/api/health")
   .then((response) => {
     if (!response.ok) throw new Error("offline");
     elements.healthDot.classList.add("online");
+    return response.json();
+  })
+  .then((health) => {
+    // The server owns the provider list; the client never hardcodes models.
+    state.providerCatalog = Array.isArray(health.providers) ? health.providers : [];
+    if (!state.provider.type && state.providerCatalog.length > 0) {
+      const preferred =
+        state.providerCatalog.find((p) => p.type === health.provider) ?? state.providerCatalog[0];
+      state.provider.type = preferred.type;
+      state.provider.model = preferred.suggested_models[0] ?? "";
+    }
+    updateProviderUI();
   })
   .catch(() => showToast("本地服务不可用", true));
 

@@ -20,7 +20,7 @@ import type { NodeFactory } from "@graph-agent/orchestrator";
 import { parseResumableCheckpoint } from "@graph-agent/orchestrator";
 import { InMemoryStorage } from "@graph-agent/session";
 import { CheckpointStore } from "../src/checkpoint-store.js";
-import { DeepSeekConfig, runResume, runStudioGraph } from "../src/studio.js";
+import { ProviderConfig, runResume, runStudioGraph } from "../src/studio.js";
 
 function validProvider(): Record<string, unknown> {
   return { type: "deepseek", api_key: "sk-test-key-1234", model: "deepseek-v4-flash" };
@@ -42,7 +42,7 @@ function scriptedFactory(): NodeFactory {
 
 describe("checkpoint save/load/resume closed loop (offline)", () => {
   it("runs → saves via store → loads via store → resumes to convergence", async () => {
-    const provider = DeepSeekConfig.fromPayload(validProvider());
+    const provider = ProviderConfig.fromPayload(validProvider());
     const storage = new InMemoryStorage();
     const store = new CheckpointStore({ storage, clock: () => 0 });
 

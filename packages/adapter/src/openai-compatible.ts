@@ -11,7 +11,12 @@ const RESERVED_KEYS = new Set(["model", "messages", "tools", "tool_choice", "max
 const MAX_EXTRA_BODY_BYTES = 16384;
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
-function validateBaseUrl(baseUrl: string): URL {
+/**
+ * Validate an endpoint URL: http(s) only, https required outside loopback, and
+ * no query, fragment, or embedded credentials. Exported so callers can surface
+ * a precise error at input-validation time instead of at adapter construction.
+ */
+export function validateBaseUrl(baseUrl: string): URL {
   let url: URL;
   try {
     url = new URL(baseUrl);

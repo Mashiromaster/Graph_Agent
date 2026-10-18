@@ -21,7 +21,7 @@ const CANNED: StudioResult = {
     },
   ],
   primary_output: "canned",
-  provider: { endpoint: "https://api.deepseek.com", model: "deepseek-v4-flash", thinking: "harness-managed", type: "deepseek" },
+  provider: { endpoint: "https://api.deepseek.com/v1", model: "deepseek-v4-flash", thinking: "harness-managed", type: "deepseek" },
   snapshot: { runId: "r", nodes: [] },
   task: "t",
 };
@@ -67,12 +67,42 @@ describe("GET /api/health", () => {
     expect(res.status).toBe(200);
     expectSecurityHeaders(res);
     const body = await res.json();
-    expect(body).toEqual({
-      models: ["deepseek-v4-flash", "deepseek-v4-pro"],
-      provider: "deepseek",
-      service: "graph-agent-studio",
-      status: "ok",
+    expect(body.status).toBe("ok");
+    expect(body.service).toBe("graph-agent-studio");
+    expect(body.provider).toBe("deepseek");
+    expect(body.models).toEqual(["deepseek-v4-flash", "deepseek-v4-pro"]);
+  });
+
+  it("advertises the provider catalog so the UI need not hardcode models", async () => {
+    const res = await fetch(`${base}/api/health`);
+    const body = await res.json();
+    const types = body.providers.map((p: { type: string }) => p.type);
+    expect(types).toEqual([
+      "deepseek",
+      "qwen",
+      "glm",
+      "kimi",
+      "doubao",
+      "openai",
+      "anthropic",
+      "local",
+    ]);
+
+    const qwen = body.providers.find((p: { type: string }) => p.type === "qwen");
+    expect(qwen).toEqual({
+      type: "qwen",
+      label: "通义千问 Qwen",
+      base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      requires_api_key: true,
+      requires_base_url: false,
+      suggested_models: ["qwen-max", "qwen-plus", "qwen-turbo", "qwen3-max"],
     });
+
+    // `local` is the one provider the client must prompt for an endpoint.
+    const local = body.providers.find((p: { type: string }) => p.type === "local");
+    expect(local.base_url).toBeNull();
+    expect(local.requires_base_url).toBe(true);
+    expect(local.requires_api_key).toBe(false);
   });
 });
 
@@ -172,14 +202,14 @@ describe("POST /api/runs", () => {
     expect(res.status).toBe(400);
   });
 
-  it("rejects invalid provider with 400", async () => {
+  it("rejects an unregistered provider type with 400", async () => {
     const res = await fetch(`${base}/api/runs`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         task: "hi",
         conversation: [],
-        provider: { type: "openai", api_key: VALID_KEY, model: "deepseek-v4-flash" },
+        provider: { type: "nope", api_key: VALID_KEY, model: "deepseek-v4-flash" },
       }),
     });
     expect(res.status).toBe(400);
@@ -402,7 +432,7 @@ describe("checkpoint endpoints", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         id: VALID_ID,
-        provider: { type: "openai", api_key: VALID_KEY, model: "deepseek-v4-flash" },
+        provider: { type: "nope", api_key: VALID_KEY, model: "deepseek-v4-flash" },
       }),
     });
     expect(res.status).toBe(400);

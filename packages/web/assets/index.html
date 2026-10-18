@@ -54,7 +54,7 @@
 
         <div class="sidebar-footer">
           <span class="avatar">GA</span>
-          <div><strong id="providerSidebarStatus">DeepSeek 未连接</strong><span>密钥仅驻留页面内存</span></div>
+          <div><strong id="providerSidebarStatus">模型未连接</strong><span>密钥仅驻留页面内存</span></div>
           <span class="health-dot" id="healthDot" title="服务状态"></span>
         </div>
       </aside>
@@ -188,9 +188,9 @@
                 <span class="mode-chip"><span class="shield-icon">◇</span>受控执行</span>
                 <button class="provider-chip" id="providerButton" type="button">
                   <span class="provider-dot" id="providerDot"></span>
-                  <span id="providerLabel">配置 DeepSeek API</span>
+                  <span id="providerLabel">配置模型 API</span>
                 </button>
-                <span class="model-label" id="providerModelLabel">deepseek-v4-flash</span>
+                <span class="model-label" id="providerModelLabel"></span>
               </div>
               <div class="composer-actions">
                 <span class="shortcut" title="Shift + Enter 换行">Enter</span>
@@ -209,25 +209,33 @@
         <div class="dialog-heading">
           <div>
             <span class="dialog-kicker">Live provider</span>
-            <h2 id="providerDialogTitle">连接 DeepSeek</h2>
+            <h2 id="providerDialogTitle">连接模型</h2>
           </div>
           <button class="dialog-close" id="providerDialogClose" type="button" aria-label="关闭">×</button>
         </div>
         <p class="dialog-copy">API Key 只保存在当前页面内存，并仅发送到本机 Graph Agent 服务；不会写入浏览器存储、日志、事件链或快照。</p>
-        <input class="sr-only" type="text" name="username" value="deepseek-api" autocomplete="username" tabindex="-1" aria-hidden="true" />
-        <label class="field-label" for="apiKeyInput">DeepSeek API Key</label>
-        <div class="secret-field">
-          <input id="apiKeyInput" name="api-key" type="password" maxlength="1024" autocomplete="new-password" spellcheck="false" placeholder="sk-…" />
-          <button id="toggleApiKey" type="button">显示</button>
+        <input class="sr-only" type="text" name="username" value="graph-agent-api" autocomplete="username" tabindex="-1" aria-hidden="true" />
+        <label class="field-label" for="providerSelect">服务商</label>
+        <select id="providerSelect" name="provider"></select>
+        <div id="apiKeyField">
+          <label class="field-label" for="apiKeyInput">API Key</label>
+          <div class="secret-field">
+            <input id="apiKeyInput" name="api-key" type="password" maxlength="1024" autocomplete="new-password" spellcheck="false" placeholder="sk-…" />
+            <button id="toggleApiKey" type="button">显示</button>
+          </div>
         </div>
-        <label class="field-label" for="modelSelect">模型</label>
-        <select id="modelSelect" name="model">
-          <option value="deepseek-v4-flash">DeepSeek V4 Flash · 更快</option>
-          <option value="deepseek-v4-pro">DeepSeek V4 Pro · 更强</option>
-        </select>
+        <div id="baseUrlField" hidden>
+          <label class="field-label" for="baseUrlInput">服务地址</label>
+          <input id="baseUrlInput" name="base-url" type="url" maxlength="512" spellcheck="false" placeholder="http://127.0.0.1:11434/v1" />
+        </div>
+        <label class="field-label" for="modelInput">模型</label>
+        <!-- Free text with suggestions: upstream model ids churn, and Ark
+             accepts self-provisioned ep-* endpoint ids. -->
+        <input id="modelInput" name="model" list="modelSuggestions" maxlength="128" spellcheck="false" autocomplete="off" placeholder="deepseek-v4-flash" />
+        <datalist id="modelSuggestions"></datalist>
         <div class="provider-note">
           <span aria-hidden="true">↗</span>
-          <p>由官方 DeepSeek Harness 驱动；只开放图提议工具，不开放 Shell 或文件系统，并会消耗你的 DeepSeek 账户额度。</p>
+          <p id="providerNote">只开放图提议工具，不开放 Shell 或文件系统，并会消耗你所选服务商的账户额度。</p>
         </div>
         <div class="dialog-actions">
           <button class="clear-key-button" id="clearApiKey" type="button">清除密钥</button>

@@ -151,7 +151,12 @@ packages/cli/           @graph-agent/cli  (deps: 上面全部)
 
 - 不做 SSE/WebSocket/流式;不加 checkpoint/step HTTP 端点(Python 也没有)。
 - 不做签名反射工具(显式 schema)。
-- 不做多 provider(仅 OpenAI 兼容 + DeepSeek Studio;架构支持扩展但不预建)。
+- ~~不做多 provider(仅 OpenAI 兼容 + DeepSeek Studio;架构支持扩展但不预建)。~~
+  **已于 2026-10-18 反转**:`@graph-agent/adapter` 新增 provider 注册表
+  (`providers.ts`),Studio 支持 deepseek / qwen / glm / kimi / doubao /
+  openai / anthropic / local。DeepSeek 仍走 Harness 子进程隔离,其余走
+  `AgentNode` + `OpenAICompatibleModel`。模型 ID 改为格式校验而非白名单
+  (上游 ID 漂移快,且 Ark 允许自建 `ep-*` 端点 ID)。
 - 不承诺跨语言 replay;hash TS 原生。
 - 不改 Python `src/`(SP4 完成后可另起清理任务退役 Python — 不在本子项目)。
 - ProjectTask 仍不做。

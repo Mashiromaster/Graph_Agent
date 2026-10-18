@@ -1,14 +1,15 @@
 export { staticFile } from "./static.js";
 export type { StaticAsset } from "./static.js";
 export {
+  DEFAULT_PROVIDER_TYPE,
   DeepSeekConfig,
+  ProviderConfig,
   parseConversation,
   runResume,
   runStudioGraph,
 } from "./studio.js";
 export type {
   ConversationTurn,
-  DeepSeekModel,
   StudioNodeResult,
   StudioResult,
 } from "./studio.js";

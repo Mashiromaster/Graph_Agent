@@ -1,10 +1,15 @@
 /**
  * Graph Agent Studio orchestration entry point.
  *
- * Validates the DeepSeek provider config + conversation, builds a fixed root
+ * Validates the provider config + conversation, builds a fixed root
  * orchestrator spec, drives the TS GraphController end-to-end, and assembles the
  * StudioResult UI contract (spec §六). Determinism: no Date.now / Math.random in
  * the tested path — the run id is derived, and timing is injectable via opts.clock.
+ *
+ * Providers come from the @graph-agent/adapter registry. DeepSeek keeps its
+ * subprocess-isolated Harness runtime; every other provider runs through
+ * AgentNode + an OpenAI-compatible ModelAdapter. Both satisfy NodeRunner, so the
+ * controller is unaware of which path a node took.
  */
 
 import {
@@ -35,13 +40,23 @@ import {
 } from "@graph-agent/node";
 import { type Storage } from "@graph-agent/session";
 import { DeepSeekHarnessNode } from "@graph-agent/harness";
+import {
+  assertModelId,
+  createProviderModel,
+  providerSpec,
+  providerTypes,
+  validateBaseUrl,
+} from "@graph-agent/adapter";
+import { AgentNode } from "@graph-agent/node";
 
 // ── constants ─────────────────────────────────────────────────────────────
 
-const DEEPSEEK_MODELS = Object.freeze(["deepseek-v4-flash", "deepseek-v4-pro"] as const);
-export type DeepSeekModel = (typeof DEEPSEEK_MODELS)[number];
+/** The provider used when a payload omits nothing — kept for UI defaults. */
+export const DEFAULT_PROVIDER_TYPE = "deepseek";
 
-const DEEPSEEK_ENDPOINT = "https://api.deepseek.com";
+/** DeepSeek is the only provider with a subprocess-isolated Harness runtime. */
+const HARNESS_PROVIDER_TYPE = "deepseek";
+
 const API_KEY_MIN = 8;
 const API_KEY_MAX = 1024;
 const CONVERSATION_MAX_ITEMS = 40;
@@ -53,9 +68,11 @@ const ORCHESTRATOR_INSTRUCTIONS =
   "whether to answer directly or to propose at most two focused sub-agents, and " +
   "produce a concise, well-structured final answer for the user.";
 
-// ── DeepSeekConfig ──────────────────────────────────────────────────────────
+// ── ProviderConfig ──────────────────────────────────────────────────────────
 
-const PROVIDER_KEYS = ["api_key", "model", "type"] as const;
+const PROVIDER_REQUIRED_KEYS = ["model", "type"] as const;
+/** `base_url` is optional and only meaningful for self-hosted endpoints. */
+const PROVIDER_OPTIONAL_KEYS = ["api_key", "base_url"] as const;
 
 export interface ConversationTurn {
   readonly role: "user" | "assistant";
@@ -72,49 +89,110 @@ function hasExactKeys(obj: Record<string, unknown>, expected: readonly string[])
   return keys.length === want.length && want.every((k, i) => keys[i] === k);
 }
 
-export class DeepSeekConfig {
-  readonly type: "deepseek";
-  readonly apiKey: string;
-  readonly model: DeepSeekModel;
+/**
+ * Require every key in `required` and permit only those plus `optional`.
+ * Still fail-closed on unknown keys — we just no longer demand an exact set,
+ * so optional fields like `base_url` can be omitted.
+ */
+function hasAllowedKeys(
+  obj: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+): boolean {
+  const keys = Object.keys(obj);
+  const allowed = new Set([...required, ...optional]);
+  return (
+    required.every((k) => Object.prototype.hasOwnProperty.call(obj, k)) &&
+    keys.every((k) => allowed.has(k))
+  );
+}
 
-  private constructor(apiKey: string, model: DeepSeekModel) {
-    this.type = "deepseek";
+export class ProviderConfig {
+  readonly type: string;
+  readonly apiKey: string;
+  readonly model: string;
+  /** Explicit endpoint override; empty string means "use the registry default". */
+  readonly baseUrl: string;
+
+  private constructor(type: string, apiKey: string, model: string, baseUrl: string) {
+    this.type = type;
     this.apiKey = apiKey;
     this.model = model;
+    this.baseUrl = baseUrl;
     Object.freeze(this);
   }
 
-  static fromPayload(obj: unknown): DeepSeekConfig {
+  static fromPayload(obj: unknown): ProviderConfig {
     if (!isPlainObject(obj)) {
       throw new Error("provider must be an object");
     }
-    if (!hasExactKeys(obj, PROVIDER_KEYS)) {
-      throw new Error("provider must have exactly keys {type, api_key, model}");
+    if (!hasAllowedKeys(obj, PROVIDER_REQUIRED_KEYS, PROVIDER_OPTIONAL_KEYS)) {
+      throw new Error(
+        "provider must have keys {type, model} and may include {api_key, base_url}",
+      );
     }
-    if (obj["type"] !== "deepseek") {
-      throw new Error('provider.type must be "deepseek"');
+    const type = obj["type"];
+    if (typeof type !== "string") {
+      throw new Error("provider.type must be a string");
     }
-    const apiKey = obj["api_key"];
-    if (typeof apiKey !== "string") {
-      throw new Error("provider.api_key must be a string");
+    const spec = providerSpec(type);
+    if (spec === null) {
+      throw new Error(`provider.type must be one of ${providerTypes().join(", ")}`);
     }
-    if (apiKey.length < API_KEY_MIN || apiKey.length > API_KEY_MAX) {
-      throw new Error(`provider.api_key length must be ${API_KEY_MIN}..${API_KEY_MAX}`);
+
+    const rawApiKey = obj["api_key"];
+    let apiKey = "";
+    if (spec.requiresApiKey || rawApiKey !== undefined) {
+      if (typeof rawApiKey !== "string") {
+        throw new Error("provider.api_key must be a string");
+      }
+      if (rawApiKey.length < API_KEY_MIN || rawApiKey.length > API_KEY_MAX) {
+        throw new Error(`provider.api_key length must be ${API_KEY_MIN}..${API_KEY_MAX}`);
+      }
+      if (rawApiKey !== rawApiKey.trim()) {
+        throw new Error("provider.api_key must not have leading or trailing whitespace");
+      }
+      // Printable ASCII only (0x20..0x7E): rejects control chars and non-ASCII.
+      if (!/^[\x20-\x7e]+$/.test(rawApiKey)) {
+        throw new Error("provider.api_key must be printable ASCII");
+      }
+      apiKey = rawApiKey;
     }
-    if (apiKey !== apiKey.trim()) {
-      throw new Error("provider.api_key must not have leading or trailing whitespace");
+
+    // Format check, not an allowlist: upstream model ids churn and Ark accepts
+    // self-provisioned `ep-*` endpoint ids.
+    const model = assertModelId(obj["model"]);
+
+    const rawBaseUrl = obj["base_url"];
+    let baseUrl = "";
+    if (rawBaseUrl !== undefined) {
+      if (typeof rawBaseUrl !== "string") {
+        throw new Error("provider.base_url must be a string");
+      }
+      if (spec.baseUrl !== null) {
+        throw new Error(`provider.base_url is not allowed for the ${type} provider`);
+      }
+      // Check the URL here so a bad endpoint is a 400 on the payload rather
+      // than surfacing later as a generic run failure.
+      try {
+        validateBaseUrl(rawBaseUrl);
+      } catch (error) {
+        throw new Error(
+          `provider.base_url is invalid: ${error instanceof Error ? error.message : "bad URL"}`,
+        );
+      }
+      baseUrl = rawBaseUrl;
+    } else if (spec.baseUrl === null) {
+      throw new Error(`provider.base_url is required for the ${type} provider`);
     }
-    // Printable ASCII only (0x20..0x7E): rejects control chars and non-ASCII.
-    if (!/^[\x20-\x7e]+$/.test(apiKey)) {
-      throw new Error("provider.api_key must be printable ASCII");
-    }
-    const model = obj["model"];
-    if (typeof model !== "string" || !(DEEPSEEK_MODELS as readonly string[]).includes(model)) {
-      throw new Error(`provider.model must be one of ${DEEPSEEK_MODELS.join(", ")}`);
-    }
-    return new DeepSeekConfig(apiKey, model as DeepSeekModel);
+
+    return new ProviderConfig(type, apiKey, model, baseUrl);
   }
 }
+
+/** @deprecated Use {@link ProviderConfig}; retained for the original API name. */
+export const DeepSeekConfig = ProviderConfig;
+export type DeepSeekConfig = ProviderConfig;
 
 // ── parseConversation ─────────────────────────────────────────────────────
 
@@ -229,14 +307,22 @@ class RecordedRunner implements NodeRunner {
   }
 }
 
-function deepSeekFactory(
-  provider: DeepSeekConfig,
+/**
+ * Build the runner factory for a provider.
+ *
+ * DeepSeek keeps the Harness path (subprocess isolation + a fail-closed
+ * capability patch, which is why it refuses local tools). Every other provider
+ * runs AgentNode over an OpenAI-compatible adapter; AgentNode already exposes
+ * the graph proposal tools, so governance is identical either way.
+ */
+export function providerFactory(
+  provider: ProviderConfig,
   clock?: () => number,
 ): NodeFactory {
   return {
     create({ spec, toolNames }) {
-      if (toolNames.length > 0) {
-        throw new Error("DeepSeek Studio does not expose local tools");
+      if (provider.type === HARNESS_PROVIDER_TYPE && toolNames.length > 0) {
+        throw new Error("The DeepSeek Harness runtime does not expose local tools");
       }
       const expanded = spec as Partial<AgentSpec>;
       const harnessSpec =
@@ -256,14 +342,45 @@ function deepSeekFactory(
                 allowSkipContext: false,
               },
             });
-      return new DeepSeekHarnessNode({
+      if (provider.type === HARNESS_PROVIDER_TYPE) {
+        return new DeepSeekHarnessNode({
+          spec: harnessSpec,
+          apiKey: provider.apiKey,
+          model: provider.model,
+          availableToolNames: toolNames,
+          ...(clock !== undefined ? { clock } : {}),
+        });
+      }
+
+      return new AgentNode({
         spec: harnessSpec,
-        apiKey: provider.apiKey,
-        model: provider.model,
-        availableToolNames: toolNames,
+        model: createProviderModel({
+          type: provider.type,
+          model: provider.model,
+          ...(provider.apiKey !== "" ? { apiKey: provider.apiKey } : {}),
+          ...(provider.baseUrl !== "" ? { baseUrl: provider.baseUrl } : {}),
+          maxOutputTokens: harnessSpec.budget.maxTotalTokens,
+          timeoutSeconds: harnessSpec.budget.timeoutSeconds,
+        }),
         ...(clock !== undefined ? { clock } : {}),
       });
     },
+  };
+}
+
+/** The endpoint and thinking mode reported back to the UI for a provider. */
+function providerSummary(provider: ProviderConfig): {
+  endpoint: string;
+  model: string;
+  thinking: string;
+  type: string;
+} {
+  const spec = providerSpec(provider.type);
+  return {
+    endpoint: provider.baseUrl !== "" ? provider.baseUrl : (spec?.baseUrl ?? ""),
+    model: provider.model,
+    thinking: provider.type === HARNESS_PROVIDER_TYPE ? "harness-managed" : "none",
+    type: provider.type,
   };
 }
 
@@ -283,7 +400,7 @@ function studioControllerPolicy(): ReturnType<typeof createControllerPolicy> {
 /**
  * Wraps a factory so every runner it produces (root + children) records its
  * result summary into the shared sink. This makes node_results capture work for
- * ANY underlying factory (the real DeepSeek one or an injected test factory).
+ * ANY underlying factory (a real provider one or an injected test factory).
  */
 function recordingFactory(inner: NodeFactory, sink: Map<string, StudioNodeResult>): NodeFactory {
   return {
@@ -294,14 +411,14 @@ function recordingFactory(inner: NodeFactory, sink: Map<string, StudioNodeResult
 }
 
 export function runStudioGraph(
-  input: { task: string; provider: DeepSeekConfig; conversation: readonly ConversationTurn[] },
+  input: { task: string; provider: ProviderConfig; conversation: readonly ConversationTurn[] },
   opts?: { factory?: NodeFactory; clock?: () => number; storage?: Storage },
 ): Promise<StudioResult> {
   return runStudioGraphImpl(input, opts);
 }
 
 async function runStudioGraphImpl(
-  input: { task: string; provider: DeepSeekConfig; conversation: readonly ConversationTurn[] },
+  input: { task: string; provider: ProviderConfig; conversation: readonly ConversationTurn[] },
   opts?: { factory?: NodeFactory; clock?: () => number; storage?: Storage },
 ): Promise<StudioResult> {
   const { task, provider, conversation } = input;
@@ -350,7 +467,7 @@ async function runStudioGraphImpl(
   const controllerPolicy = studioControllerPolicy();
 
   const nodeResults = new Map<string, StudioNodeResult>();
-  const baseFactory = opts?.factory ?? deepSeekFactory(provider, clock);
+  const baseFactory = opts?.factory ?? providerFactory(provider, clock);
   const factory = recordingFactory(baseFactory, nodeResults);
   const rootRunner = factory.create({ spec: rootSpec, toolNames: [] });
 
@@ -379,12 +496,7 @@ async function runStudioGraphImpl(
     live: true,
     node_results: nodeResultList,
     primary_output: rootResult ? rootResult.output : null,
-    provider: {
-      endpoint: DEEPSEEK_ENDPOINT,
-      model: provider.model,
-      thinking: "harness-managed",
-      type: "deepseek",
-    },
+    provider: providerSummary(provider),
     snapshot: runSnapshotToDict(snapshot),
     task,
     checkpoint,
@@ -400,11 +512,11 @@ async function runStudioGraphImpl(
  */
 export async function runResume(
   checkpointJson: string,
-  provider: DeepSeekConfig,
+  provider: ProviderConfig,
   opts?: { storage?: Storage; clock?: () => number; factory?: NodeFactory },
 ): Promise<StudioResult> {
   const clock = opts?.clock;
-  const baseFactory = opts?.factory ?? deepSeekFactory(provider, clock);
+  const baseFactory = opts?.factory ?? providerFactory(provider, clock);
 
   const nodeResults = new Map<string, StudioNodeResult>();
   const factory = recordingFactory(baseFactory, nodeResults);
@@ -441,12 +553,7 @@ export async function runResume(
     live: true,
     node_results: nodeResultList,
     primary_output: rootResult ? rootResult.output : null,
-    provider: {
-      endpoint: DEEPSEEK_ENDPOINT,
-      model: provider.model,
-      thinking: "harness-managed",
-      type: "deepseek",
-    },
+    provider: providerSummary(provider),
     snapshot: runSnapshotToDict(snapshot),
     task: "resume",
     checkpoint,
