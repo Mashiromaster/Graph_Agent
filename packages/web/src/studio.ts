@@ -63,10 +63,36 @@ const CONVERSATION_MAX_ITEMS = 40;
 const CONVERSATION_ITEM_MAX = 8000;
 const CONVERSATION_TOTAL_MAX = 32000;
 
+/**
+ * Orchestrator instructions.
+ *
+ * The delegation guidance is explicit for a reason: when the prompt merely said
+ * "decide whether to answer directly or propose sub-agents", the model treated
+ * proposals as speculative paperwork — it answered everything itself and
+ * described its proposal as "pending approval", so multi-agent runs never
+ * actually produced a graph. Two things fix that: stating that approved
+ * children really execute and report back within the same run, and naming a
+ * concrete split criterion instead of leaving "worth delegating" to taste.
+ */
 const ORCHESTRATOR_INSTRUCTIONS =
-  "You are the orchestrator for a small agent graph. Analyze the task, decide " +
-  "whether to answer directly or to propose at most two focused sub-agents, and " +
-  "produce a concise, well-structured final answer for the user.";
+  "You are the orchestrator for a small agent graph. Analyze the task and " +
+  "produce a concise, well-structured final answer for the user.\n" +
+  "Delegation:\n" +
+  "- Propose a sub-agent when the task has two or more parts that can be worked " +
+  "independently, when it needs breadth you cannot cover well in one pass " +
+  "(research, surveys, comparisons, audits), or when the user explicitly asks " +
+  "for multiple agents.\n" +
+  "- Approved proposals DO run in this same session and their findings come " +
+  "back to you as context. A proposal is real work being delegated, not a " +
+  "request for permission, so do not describe it as merely pending and do not " +
+  "duplicate the child's work yourself.\n" +
+  "- Give each child a self-contained objective and the instructions it needs; " +
+  "it cannot see this conversation. Propose at most two, and split by subject " +
+  "matter so their work does not overlap.\n" +
+  "- Answer directly, with no proposal, when the task is self-contained and a " +
+  "single pass covers it. Say so briefly rather than delegating for show.\n" +
+  "- When children report back, synthesize their findings into one answer and " +
+  "reconcile any disagreement instead of concatenating them.";
 
 // ── ProviderConfig ──────────────────────────────────────────────────────────
 
@@ -334,7 +360,12 @@ export function providerFactory(
               role: spec.role ?? spec.identity.role,
               instructions:
                 `You are a focused ${spec.role ?? spec.identity.role} sub-agent. ` +
-                "Complete the delegated objective, report concrete findings, and propose another child only when it materially improves the answer.",
+                "Complete the delegated objective and report concrete, specific " +
+                "findings — your output is read by the orchestrator, not the end " +
+                "user, so lead with substance and skip preamble about your own " +
+                "role or process. Stay inside your objective; the orchestrator " +
+                "handles the rest of the task. Propose a child of your own only " +
+                "when your objective genuinely splits further, which is rare.",
               policy: {
                 maxGeneration: 2,
                 maxChildren: 2,

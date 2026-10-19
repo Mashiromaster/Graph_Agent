@@ -153,6 +153,34 @@ function conversationForRequest(messages) {
   return selected;
 }
 
+/**
+ * Human-readable cause of a failed run, taken from the first failed node's
+ * error code rather than guessed. The server already classifies failures
+ * precisely; a blanket "check your API key" hides budget/timeout/validation
+ * errors that have nothing to do with credentials.
+ */
+const ERROR_HINTS = {
+  model_error: "无法连接模型服务或上游返回错误，请检查网络、账户额度后重试",
+  invalid_model_result: "模型返回了无法解析的响应",
+  usage_unavailable: "模型未返回完整 token 计账",
+  token_budget_exceeded: "超出 token 预算",
+  turn_budget_exceeded: "超出对话轮次预算",
+  tool_budget_exceeded: "超出工具调用预算",
+  timeout: "节点执行超时",
+  empty_response: "模型没有返回任何文本",
+  harness_blocked: "模型请求了不可用的能力",
+  execution_error: "执行被取消或中断",
+  invalid_jev_result: "决策模型返回了格式错误的结果",
+};
+
+function failureReason(payload) {
+  const failed = (payload.node_results ?? []).find((n) => n.error);
+  if (!failed) return "执行未成功完成";
+  const code = failed.error.code;
+  const hint = ERROR_HINTS[code];
+  return hint ? `${hint}（${code}）` : `${failed.error.message}（${code}）`;
+}
+
 async function runTask(taskText) {
   const normalized = taskText.trim();
   if (!normalized || state.running) return;
@@ -192,7 +220,7 @@ async function runTask(taskText) {
       ? payload.primary_output.trim()
       : succeeded
         ? "本轮执行完成，但主 Agent 没有返回文本。可以打开执行图检查各节点输出。"
-        : "本轮 Agent 执行失败，请检查 API Key、账户额度或网络后重试。";
+        : `本轮 Agent 执行失败：${failureReason(payload)}`;
     task.messages.push({
       content: output,
       error: !succeeded,
@@ -207,7 +235,7 @@ async function runTask(taskText) {
     if (succeeded) {
       showToast(`回复完成 · ${payload.snapshot.nodes.length} 个节点 · ${formatDuration(payload.elapsed_ms)}`);
     } else {
-      showToast("模型调用失败，请检查 API Key、账户余额或网络", true);
+      showToast(`执行失败：${failureReason(payload)}`, true);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "运行失败";
@@ -287,7 +315,7 @@ function renderMessageMeta(result) {
   const meta = document.createElement("div");
   meta.className = "message-meta";
   const summary = document.createElement("span");
-  const tokens = result.snapshot.budget.committed_tokens;
+  const tokens = result.snapshot.budget.committedTokens;
   summary.textContent = `${result.provider.model} · ${result.snapshot.nodes.length} 节点 · ${formatNumber(tokens)} tokens · ${formatDuration(result.elapsed_ms)}`;
   const graphButton = document.createElement("button");
   graphButton.type = "button";
@@ -575,7 +603,7 @@ function renderGraphResult() {
   const { snapshot } = state.result;
   elements.nodeMetric.textContent = String(snapshot.nodes.length);
   elements.edgeMetric.textContent = String(snapshot.edges.length);
-  elements.tokenMetric.textContent = formatNumber(snapshot.budget.committed_tokens);
+  elements.tokenMetric.textContent = formatNumber(snapshot.budget.committedTokens);
   elements.eventMetric.textContent = String(state.result.event_count);
   elements.statusMetric.textContent = labels[snapshot.status] || snapshot.status;
   elements.statusMetric.className = snapshot.status;
@@ -605,7 +633,7 @@ function renderGraph() {
     const x = 118 + generation * ((width - 236) / maxGeneration);
     group.forEach((node, index) => {
       const y = ((index + 1) * height) / (group.length + 1);
-      positions.set(node.node_id, { x, y });
+      positions.set(node.nodeId, { x, y });
     });
   }
 
@@ -616,8 +644,8 @@ function renderGraph() {
   elements.nodeLayer.replaceChildren();
 
   edges.forEach((edge) => {
-    const source = positions.get(edge.source_node_id);
-    const target = positions.get(edge.target_node_id);
+    const source = positions.get(edge.sourceNodeId);
+    const target = positions.get(edge.targetNodeId);
     if (!source || !target) return;
     const edgeClass = edge.type === "depends_on" ? "dependency" : "spawn";
     const startX = source.x + 99;
@@ -638,11 +666,11 @@ function renderGraph() {
   });
 
   nodes.forEach((node) => {
-    const position = positions.get(node.node_id);
+    const position = positions.get(node.nodeId);
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `graph-node${node.node_id === state.activeNodeId ? " selected" : ""}`;
-    button.dataset.nodeId = node.node_id;
+    button.className = `graph-node${node.nodeId === state.activeNodeId ? " selected" : ""}`;
+    button.dataset.nodeId = node.nodeId;
     button.dataset.role = node.role;
     button.style.left = `${position.x}px`;
     button.style.top = `${position.y}px`;
@@ -661,7 +689,7 @@ function renderGraph() {
     status.title = labels[node.state] || node.state;
     button.append(avatar, copy, status);
     button.addEventListener("click", () => {
-      state.activeNodeId = node.node_id;
+      state.activeNodeId = node.nodeId;
       renderGraph();
       renderInspector();
     });
@@ -671,7 +699,7 @@ function renderGraph() {
 
 function renderInspector() {
   if (!state.result) return;
-  const node = state.result.snapshot.nodes.find((item) => item.node_id === state.activeNodeId);
+  const node = state.result.snapshot.nodes.find((item) => item.nodeId === state.activeNodeId);
   if (!node) {
     elements.inspectorEmpty.hidden = false;
     elements.inspectorContent.hidden = true;
@@ -685,17 +713,19 @@ function renderInspector() {
   elements.agentAvatar.style.background = node.role === "planner" ? "var(--blue)" : node.role === "reviewer" ? "var(--violet)" : "#292a27";
   elements.agentName.textContent = node.name;
   elements.agentRole.textContent = displayRole(node.role);
-  elements.agentId.textContent = node.node_id;
+  elements.agentId.textContent = node.nodeId;
   elements.agentGeneration.textContent = String(node.generation);
   elements.agentPriority.textContent = Number(node.priority).toFixed(2);
-  elements.agentBudget.textContent = formatNumber(node.allocation_tokens);
-  elements.agentTools.textContent = node.allowed_tool_names.length ? node.allowed_tool_names.join(", ") : "none";
-  const nodeResult = state.result.node_results?.find((item) => item.node_id === node.node_id);
+  elements.agentBudget.textContent = formatNumber(node.allocationTokens);
+  elements.agentTools.textContent = node.allowedToolNames.length ? node.allowedToolNames.join(", ") : "none";
+  const nodeResult = state.result.node_results?.find((item) => item.node_id === node.nodeId);
   if (nodeResult) {
-    const totalTokens = nodeResult.usage.input_tokens + nodeResult.usage.output_tokens;
+    const totalTokens = nodeResult.usage.inputTokens + nodeResult.usage.outputTokens;
     elements.agentUsage.textContent = `${formatNumber(totalTokens)} tokens`;
     elements.agentOutput.textContent = nodeResult.output
-      || (nodeResult.error ? "模型执行失败，请检查模型配置后重试。" : "节点未返回文本输出。已按状态记录完成。");
+      || (nodeResult.error
+        ? `${nodeResult.error.message}（${nodeResult.error.code}）`
+        : "节点未返回文本输出。已按状态记录完成。");
   } else {
     elements.agentUsage.textContent = "—";
     elements.agentOutput.textContent = "尚未采集到该节点的运行结果。";
@@ -747,8 +777,8 @@ function resetGraphSelection() {
 
 function rootNodeId(result) {
   if (!result?.snapshot?.nodes?.length) return null;
-  return result.snapshot.nodes.find((node) => node.generation === 0)?.node_id
-    || result.snapshot.nodes[0].node_id;
+  return result.snapshot.nodes.find((node) => node.generation === 0)?.nodeId
+    || result.snapshot.nodes[0].nodeId;
 }
 
 function exportSnapshot() {
@@ -757,7 +787,7 @@ function exportSnapshot() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `${state.result.snapshot.run_id}.json`;
+  anchor.download = `${state.result.snapshot.runId}.json`;
   anchor.click();
   URL.revokeObjectURL(url);
   showToast("快照已导出为 JSON");

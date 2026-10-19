@@ -148,6 +148,33 @@ export class AgentNode implements NodeRunner {
           nodeId,
         );
       }
+      // Classify by failure kind instead of collapsing everything into
+      // execution_error: a reachability/5xx failure is transient and worth a
+      // retry, while a malformed response fails identically on retry. Upstream
+      // error text is never echoed — it can contain request content.
+      const name = err instanceof Error ? err.name : "";
+      if (name === "ModelTransportError") {
+        return this._failure(
+          recorder,
+          "model_error",
+          "The model endpoint could not be reached or returned an error.",
+          true,
+          usage,
+          collector,
+          nodeId,
+        );
+      }
+      if (name === "InvalidModelResponse") {
+        return this._failure(
+          recorder,
+          "invalid_model_result",
+          "The model returned a malformed response.",
+          false,
+          usage,
+          collector,
+          nodeId,
+        );
+      }
       return this._failure(
         recorder,
         "execution_error",
