@@ -30,3 +30,13 @@ export {
   providerTypes,
 } from "./providers.js";
 export type { ProviderSpec } from "./providers.js";
+export { JevDecisionClient, assertJevQuestions } from "./jev.js";
+export type {
+  JevAnswer,
+  JevChoiceQuestion,
+  JevDecision,
+  JevNoulQuestion,
+  JevQuestion,
+  JevQuestionType,
+  JevScoreQuestion,
+} from "./jev.js";

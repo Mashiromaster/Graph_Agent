@@ -16,3 +16,5 @@ export type { SessionMemory } from "./memory.js";
 export { SessionBackedMemory } from "./session-memory.js";
 export { AgentNode } from "./agent-node.js";
 export type { NodeRunner } from "./agent-node.js";
+export { JevNode } from "./jev-node.js";
+export type { JevDecider, JevNodeOptions } from "./jev-node.js";
