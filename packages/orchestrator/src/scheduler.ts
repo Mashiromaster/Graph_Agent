@@ -70,6 +70,8 @@ function withNodeState(node: NodeRecord, state: NodeState): NodeRecord {
     state,
     allowedToolNames: node.allowedToolNames,
     allocationTokens: node.allocationTokens,
+    // 状态流转必须保留模型绑定,否则节点一进 RUNNING 就丢失 modelKind。
+    modelKind: node.modelKind,
   });
 }
 

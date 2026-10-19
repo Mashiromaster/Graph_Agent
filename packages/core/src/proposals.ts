@@ -10,6 +10,14 @@ export interface SpawnProposal {
   readonly toolNames: readonly string[];
   readonly priority: number;
   readonly budgetShare: number;
+  /**
+   * 请求为子节点绑定的模型类型(如 "jev" / "lightgbm" / "llm")。省略即由
+   * NodeFactory 自行决定(沿用历史行为)。**不可信**:控制器按
+   * policy.allowedModelKinds 独立校验,不在白名单内整体拒绝。
+   *
+   * 该字段参与 resultBindingHash——省略时键不存在,故既有结果哈希逐字节不变。
+   */
+  readonly modelKind?: string;
 }
 
 export function createSpawnProposal(input: {
@@ -22,6 +30,7 @@ export function createSpawnProposal(input: {
   toolNames?: readonly string[];
   priority?: number;
   budgetShare?: number;
+  modelKind?: string;
 }): SpawnProposal {
   const toolNames = (input.toolNames ?? []).map((name, index) =>
     assertNonEmptyText(name, `toolNames[${index}]`),
@@ -36,6 +45,10 @@ export function createSpawnProposal(input: {
     toolNames: Object.freeze(toolNames),
     priority: assertUnitInterval(input.priority ?? 0.5, "priority"),
     budgetShare: assertUnitInterval(input.budgetShare ?? 0.25, "budgetShare"),
+    // 条件展开:省略时键完全不存在,保持既有 canonicalJson/哈希不变。
+    ...(input.modelKind !== undefined
+      ? { modelKind: assertNonEmptyText(input.modelKind, "modelKind") }
+      : {}),
   });
 }
 

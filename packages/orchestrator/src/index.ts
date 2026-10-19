@@ -62,6 +62,8 @@ export { validateSnapshot } from "./snapshot-validation.js";
 export { applyMessage, applySkip, applySpawn } from "./mutations.js";
 export { RunnerCancelledError } from "./runner.js";
 export type { AgentSpec, NodeFactory, NodeRunner } from "./runner.js";
+export { ModelKindRegistry } from "./model-registry.js";
+export type { ModelKindRegistryOptions, RunnerBuilder } from "./model-registry.js";
 export {
   blockFailedDependents,
   cancelClaims,

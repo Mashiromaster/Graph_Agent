@@ -232,6 +232,8 @@ export class GraphController {
         state: NodeState.READY,
         allowedToolNames,
         allocationTokens: allocation,
+        // 根节点的模型类型由宿主在 rootSpec 里直接给定,不经提案校验。
+        modelKind: rootSpec.modelKind ?? null,
       });
 
       state.nodes.set(nodeId, root);

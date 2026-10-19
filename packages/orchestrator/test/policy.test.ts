@@ -17,6 +17,8 @@ describe("createControllerPolicy", () => {
       maxTextLength: 16000,
       maxIdLength: 256,
       maxMessageTtlSeconds: 86400,
+      // 默认空:模型类型须由宿主显式开启(fail-closed)。
+      allowedModelKinds: [],
     });
   });
 

@@ -12,6 +12,12 @@ export interface NodePolicy {
   readonly maxChildren: number;
   readonly allowDirectMessages: boolean;
   readonly allowSkipContext: boolean;
+  /**
+   * 本节点可为子节点请求的模型类型。空数组(默认)= 不得携带 model_kind。
+   * 这是节点侧的**预校验**,与控制器的 policy.allowedModelKinds 相互独立:
+   * 它让模型尽早拿到拒绝理由,但真正的信任边界仍在控制器。
+   */
+  readonly allowedModelKinds: readonly string[];
 }
 
 export interface AgentSpec {
@@ -20,6 +26,8 @@ export interface AgentSpec {
   readonly instructions: string;
   readonly role?: string;
   readonly policy: NodePolicy;
+  /** 本节点自身绑定的模型类型;省略表示由工厂决定。 */
+  readonly modelKind?: string;
 }
 
 export function createAgentSpec(input: {
@@ -32,7 +40,9 @@ export function createAgentSpec(input: {
     maxChildren?: number;
     allowDirectMessages?: boolean;
     allowSkipContext?: boolean;
+    allowedModelKinds?: readonly string[];
   };
+  modelKind?: string;
 }): AgentSpec {
   const policyInput = input.policy ?? {};
   const policy: NodePolicy = Object.freeze({
@@ -48,6 +58,15 @@ export function createAgentSpec(input: {
       policyInput.allowSkipContext ?? false,
       "allowSkipContext",
     ),
+    allowedModelKinds: Object.freeze(
+      [
+        ...new Set(
+          (policyInput.allowedModelKinds ?? []).map((kind, index) =>
+            assertNonEmptyText(kind, `allowedModelKinds[${index}]`),
+          ),
+        ),
+      ].sort(),
+    ),
   });
   return Object.freeze({
     identity: input.identity,
@@ -57,6 +76,9 @@ export function createAgentSpec(input: {
       ? { role: assertNonEmptyText(input.role, "role") }
       : {}),
     policy,
+    ...(input.modelKind !== undefined
+      ? { modelKind: assertNonEmptyText(input.modelKind, "modelKind") }
+      : {}),
   });
 }
 
@@ -89,7 +111,9 @@ export function agentSpecToDict(spec: AgentSpec): Record<string, unknown> {
       maxChildren: policy.maxChildren,
       allowDirectMessages: policy.allowDirectMessages,
       allowSkipContext: policy.allowSkipContext,
+      allowedModelKinds: [...policy.allowedModelKinds],
     },
+    ...(spec.modelKind !== undefined ? { modelKind: spec.modelKind } : {}),
   };
 }
 
@@ -142,6 +166,10 @@ export function agentSpecFromDict(value: unknown): AgentSpec {
   if (typeof dict.instructions !== "string") {
     throw new Error("instructions must be a string");
   }
+  const rawAllowedKinds = policyDict.allowedModelKinds;
+  if (rawAllowedKinds !== undefined && !Array.isArray(rawAllowedKinds)) {
+    throw new Error("allowedModelKinds must be an array");
+  }
   return createAgentSpec({
     identity,
     budget,
@@ -164,6 +192,9 @@ export function agentSpecFromDict(value: unknown): AgentSpec {
         policyDict.allowSkipContext as boolean,
         "allowSkipContext",
       ),
+      // 缺失视为空(兼容本字段引入前写出的 checkpoint)。
+      allowedModelKinds: (rawAllowedKinds as string[] | undefined) ?? [],
     },
+    ...(dict.modelKind !== undefined ? { modelKind: dict.modelKind as string } : {}),
   });
 }

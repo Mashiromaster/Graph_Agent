@@ -6,7 +6,7 @@
  * 返回值被 `Object.freeze` 冻结。
  */
 
-import { assertBoundedInt, assertUnitInterval } from "@graph-agent/core";
+import { assertBoundedInt, assertNonEmptyText, assertUnitInterval } from "@graph-agent/core";
 
 export interface ControllerPolicy {
   readonly maxNodes: number;
@@ -21,6 +21,15 @@ export interface ControllerPolicy {
   readonly maxTextLength: number;
   readonly maxIdLength: number;
   readonly maxMessageTtlSeconds: number;
+  /**
+   * 允许被 spawn 提案指定的模型类型白名单。**空数组(默认)表示不允许任何
+   * 提案携带 modelKind**——此时任何带 modelKind 的提案都会被拒绝,模型绑定
+   * 完全由 NodeFactory 决定(即本字段引入前的历史行为)。
+   *
+   * fail-closed 的方向性是刻意的:模型选择是权限面(不同模型的成本、外部
+   * 网络可达性、数据边界各不相同),故须由宿主显式开启,不能由模型自行扩张。
+   */
+  readonly allowedModelKinds: readonly string[];
 }
 
 const DEFAULTS: ControllerPolicy = {
@@ -36,6 +45,7 @@ const DEFAULTS: ControllerPolicy = {
   maxTextLength: 16000,
   maxIdLength: 256,
   maxMessageTtlSeconds: 86400,
+  allowedModelKinds: [],
 };
 
 export function createControllerPolicy(
@@ -70,6 +80,16 @@ export function createControllerPolicy(
       merged.maxMessageTtlSeconds,
       "maxMessageTtlSeconds",
       { min: 1 },
+    ),
+    // 去重 + 排序:白名单的集合语义与声明顺序无关,规范化后便于确定性比较。
+    allowedModelKinds: Object.freeze(
+      [
+        ...new Set(
+          merged.allowedModelKinds.map((kind, index) =>
+            assertNonEmptyText(kind, `allowedModelKinds[${index}]`),
+          ),
+        ),
+      ].sort(),
     ),
   });
 }

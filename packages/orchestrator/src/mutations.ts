@@ -152,7 +152,14 @@ export function applySpawn(
     parentNodeId: parent.nodeId,
   });
   const budget = createNodeBudget({ maxTotalTokens: allocation });
-  const spec = { identity, budget, role: proposal.role };
+  // modelKind 已由 validateSpawn 对照 policy.allowedModelKinds 校验;条件展开
+  // 保证未指定时键不存在,spec 的 canonicalJson 与既有行为一致。
+  const spec = {
+    identity,
+    budget,
+    role: proposal.role,
+    ...(proposal.modelKind !== undefined ? { modelKind: proposal.modelKind } : {}),
+  };
   let runner;
   try {
     runner = factory.create({ spec, toolNames });
@@ -177,6 +184,7 @@ export function applySpawn(
     state: NodeState.READY,
     allowedToolNames: toolNames,
     allocationTokens: allocation,
+    modelKind: proposal.modelKind ?? null,
   });
   const input: AgentInput = createAgentInput({
     task: proposal.objective,

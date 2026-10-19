@@ -145,6 +145,9 @@ export function resumeController(
             state: targetState,
             allowedToolNames: node.allowedToolNames,
             allocationTokens: node.allocationTokens,
+            // 保留模型绑定:否则被中断的 RUNNING 节点 resume 后会丢失 modelKind,
+            // 异质图将无法复现。
+            modelKind: node.modelKind,
           });
     state.nodes.set(node.nodeId, record);
   }

@@ -78,6 +78,11 @@ export interface NodeRecord {
   readonly state: NodeState;
   readonly allowedToolNames: readonly string[];
   readonly allocationTokens: number;
+  /**
+   * 该节点绑定的模型类型;`null` 表示未指定(由 NodeFactory 自行决定)。
+   * 持久化到 checkpoint 以保证异质图 resume 后能重建同样的模型绑定。
+   */
+  readonly modelKind: string | null;
 }
 
 export interface EdgeRecord {
@@ -129,6 +134,7 @@ export function createNodeRecord(input: {
   state: NodeState;
   allowedToolNames: readonly string[];
   allocationTokens: number;
+  modelKind?: string | null;
 }): NodeRecord {
   return Object.freeze({
     nodeId: input.nodeId,
@@ -140,6 +146,7 @@ export function createNodeRecord(input: {
     state: assertMember(input.state, NODE_STATE_VALUES, "state"),
     allowedToolNames: Object.freeze([...input.allowedToolNames]),
     allocationTokens: input.allocationTokens,
+    modelKind: input.modelKind ?? null,
   });
 }
 
@@ -250,6 +257,9 @@ export function runSnapshotToDict(snapshot: RunSnapshot): Record<string, unknown
       state: node.state,
       allowedToolNames: [...node.allowedToolNames],
       allocationTokens: node.allocationTokens,
+      // modelKind 为 null 时整键省略:同质图(既有行为)的 canonicalJson 与
+      // stateDigest 因此逐字节不变,v1/v2 旧 checkpoint 仍可通过 digest 复算。
+      ...(node.modelKind !== null ? { modelKind: node.modelKind } : {}),
     })),
     edges: snapshot.edges.map((edge) => ({
       edgeId: edge.edgeId,
@@ -324,6 +334,7 @@ export function runSnapshotFromDict(dict: unknown): RunSnapshot {
           "allowedToolNames",
         ) as string[],
         allocationTokens: node["allocationTokens"] as number,
+        modelKind: (node["modelKind"] as string | undefined) ?? null,
       });
     }),
   );

@@ -24,11 +24,11 @@ import type { AgentSpec } from "./spec.js";
 import type { Tool } from "./tools.js";
 import type { SessionMemory } from "./memory.js";
 import {
-  GRAPH_TOOL_DEFINITIONS,
   MESSAGE_TOOL,
   ProposalCollector,
   SKIP_CONTEXT_TOOL,
   SPAWN_TOOL,
+  graphToolDefinitions,
 } from "./graph-tools.js";
 
 export interface NodeRunner {
@@ -64,6 +64,8 @@ export class AgentNode implements NodeRunner {
   private readonly localToolDefs: readonly ToolDefinition[];
   private readonly memory: SessionMemory | undefined;
   private readonly clock: () => number;
+  /** 按 spec.policy.allowedModelKinds 裁剪后的图工具定义(构造时算一次)。 */
+  private readonly graphToolDefs: readonly ToolDefinition[];
 
   constructor(input: {
     spec: AgentSpec;
@@ -90,6 +92,7 @@ export class AgentNode implements NodeRunner {
     }
     this.localTools = map;
     this.localToolDefs = Object.freeze([...map.values()].map((t) => t.definition));
+    this.graphToolDefs = graphToolDefinitions(this.spec.policy.allowedModelKinds);
   }
 
   async run(input: AgentInput, signal?: AbortSignal): Promise<AgentResult> {
@@ -208,7 +211,7 @@ export class AgentNode implements NodeRunner {
         nodeId,
         instructions: this.spec.instructions,
         messages,
-        tools: [...this.localToolDefs, ...GRAPH_TOOL_DEFINITIONS],
+        tools: [...this.localToolDefs, ...this.graphToolDefs],
         metadata: { turn, ...input.metadata },
       });
 

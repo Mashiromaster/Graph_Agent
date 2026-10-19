@@ -33,6 +33,7 @@ export const GRAPH_TOOL_DEFINITIONS: readonly ToolDefinition[] = Object.freeze([
         tool_names: { type: "array", items: { type: "string" } },
         priority: { type: "number", minimum: 0, maximum: 1 },
         budget_share: { type: "number", exclusiveMinimum: 0, maximum: 1 },
+        model_kind: { type: "string" },
       },
     }),
   }),
@@ -68,6 +69,47 @@ export const GRAPH_TOOL_DEFINITIONS: readonly ToolDefinition[] = Object.freeze([
     }),
   }),
 ]);
+
+/**
+ * 按节点策略裁剪图工具定义。
+ *
+ * `allowedModelKinds` 非空时,为 spawn 工具的 `model_kind` 参数补上 enum 与
+ * 说明,使模型只能从宿主允许的集合里选;为空(默认)时**整个参数被移除**,
+ * 模型根本看不到这个旋钮——与 ProposalCollector 的拒绝行为一致,避免模型
+ * 反复尝试一个注定被拒的字段。
+ */
+export function graphToolDefinitions(
+  allowedModelKinds: readonly string[],
+): readonly ToolDefinition[] {
+  return Object.freeze(
+    GRAPH_TOOL_DEFINITIONS.map((def) => {
+      if (def.name !== SPAWN_TOOL) {
+        return def;
+      }
+      const schema = def.inputSchema as {
+        properties: Record<string, unknown>;
+        [k: string]: unknown;
+      };
+      const { model_kind: _omitted, ...rest } = schema.properties;
+      const properties: Record<string, unknown> =
+        allowedModelKinds.length > 0
+          ? {
+              ...rest,
+              model_kind: {
+                type: "string",
+                enum: [...allowedModelKinds],
+                description:
+                  "Model type to bind the child agent to. Must be one of the listed kinds.",
+              },
+            }
+          : rest;
+      return Object.freeze({
+        ...def,
+        inputSchema: Object.freeze({ ...schema, properties: Object.freeze(properties) }),
+      });
+    }),
+  );
+}
 
 type Proposal = SpawnProposal | MessageProposal | SkipContextProposal;
 
@@ -179,6 +221,16 @@ export class ProposalCollector {
       throw new Error("cumulative budget_share exceeds 1");
     }
 
+    // 模型类型预校验:白名单为空时不接受任何 model_kind。控制器会独立复校。
+    let modelKind: string | undefined;
+    if (args.model_kind !== undefined) {
+      const requested = text(args.model_kind, "model_kind");
+      if (!this.spec.policy.allowedModelKinds.includes(requested)) {
+        throw new Error(`model_kind not permitted: ${requested}`);
+      }
+      modelKind = requested;
+    }
+
     return createSpawnProposal({
       proposalId: deriveId(this.spec.identity.nodeId, "spawn", ordinal),
       parentNodeId: this.spec.identity.nodeId,
@@ -189,6 +241,7 @@ export class ProposalCollector {
       toolNames,
       priority,
       budgetShare,
+      ...(modelKind !== undefined ? { modelKind } : {}),
     });
   }
 

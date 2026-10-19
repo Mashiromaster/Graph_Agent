@@ -8,6 +8,7 @@ export {
   ProposalCollector,
   SKIP_CONTEXT_TOOL,
   SPAWN_TOOL,
+  graphToolDefinitions,
 } from "./graph-tools.js";
 export type { ProposalResult } from "./graph-tools.js";
 export { InMemorySessionMemory } from "./memory.js";

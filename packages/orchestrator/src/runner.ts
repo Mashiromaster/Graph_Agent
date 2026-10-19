@@ -20,6 +20,12 @@ export interface AgentSpec {
   readonly identity: AgentIdentity;
   readonly budget: NodeBudget;
   readonly role?: string;
+  /**
+   * 该节点绑定的模型类型(已通过 policy.allowedModelKinds 校验)。省略表示
+   * 未指定——工厂应回落到自身默认。工厂据此分派不同的 runner 实现
+   * (如 jev → HTTP 客户端、lightgbm → 本地推理、llm → Harness)。
+   */
+  readonly modelKind?: string;
 }
 
 /** 单个节点的执行器。`run` 异步返回一份待校验的 AgentResult。 */

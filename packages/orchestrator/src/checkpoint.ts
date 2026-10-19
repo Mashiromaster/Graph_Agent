@@ -76,6 +76,12 @@ export interface ResumableNode {
   readonly toolNames: readonly string[];
   readonly reservation: number;
   readonly state: string;
+  /**
+   * 节点的模型绑定;`null` 表示未指定。携带它是异质图可 resume 的前提——
+   * spec 虽为 opaque 且通常已含 modelKind,但 resume 重建 NodeRecord 时需要
+   * 一个不依赖 rehydrateSpec 实现的权威来源。
+   */
+  readonly modelKind: string | null;
 }
 
 /** 一条已完成执行的归档产物:result 为 core 的 AgentResult dict。 */
@@ -125,7 +131,10 @@ export function buildResumableCheckpoint(
     events.length > 0 ? events[events.length - 1]!.eventHash : CONTROLLER_GENESIS_HASH;
   const stateDigest = sha256(canonicalJson(runSnapshotToDict(snapshotOf(state))));
 
-  const nodes: ResumableNode[] = [...state.nodes.values()]
+  // 注意:此处为「线格式」投影,不是 ResumableNode(后者 modelKind 必填)。
+  // 与 runSnapshotToDict 一致——modelKind 为 null 时整键省略,故同质图的
+  // checkpoint 串逐字节不变,既有 v2 文档仍可解析(parse 侧缺失即 null)。
+  const nodes: Record<string, unknown>[] = [...state.nodes.values()]
     .sort((a, b) => (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0))
     .map((node: NodeRecord) => {
       const rawInput = state.inputs.get(node.nodeId);
@@ -137,6 +146,7 @@ export function buildResumableCheckpoint(
         toolNames: [...node.allowedToolNames],
         reservation: state.nodeReservations.get(node.nodeId) ?? 0,
         state: node.state,
+        ...(node.modelKind !== null ? { modelKind: node.modelKind } : {}),
       };
     });
 
@@ -177,12 +187,15 @@ function parseResumableNode(raw: unknown): ResumableNode {
   const toolNames = record["toolNames"];
   const reservation = record["reservation"];
   const state = record["state"];
+  const modelKind = record["modelKind"];
   if (
     typeof nodeId !== "string" ||
     !Array.isArray(toolNames) ||
     !toolNames.every((name) => typeof name === "string") ||
     typeof reservation !== "number" ||
-    typeof state !== "string"
+    typeof state !== "string" ||
+    // 缺失(旧 v2 文档)与 null 均合法;出现时必须是字符串。
+    (modelKind !== undefined && modelKind !== null && typeof modelKind !== "string")
   ) {
     throw new SyntaxError("resumable node has an invalid field");
   }
@@ -193,6 +206,7 @@ function parseResumableNode(raw: unknown): ResumableNode {
     toolNames: Object.freeze([...(toolNames as string[])]),
     reservation,
     state,
+    modelKind: (modelKind as string | undefined) ?? null,
   };
 }
 

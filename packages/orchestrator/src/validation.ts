@@ -288,7 +288,7 @@ function spawnEdgesFrom(state: ValidatorState, nodeId: string): readonly EdgeRec
 
 /**
  * Validate a {@link SpawnProposal} against the parent node, run state, and
- * policy. Returns `{code,message}` on the first failure, else `null`. The 11
+ * policy. Returns `{code,message}` on the first failure, else `null`. The 12
  * checks run in the order specified by the spec.
  */
 export function validateSpawn(
@@ -356,7 +356,21 @@ export function validateSpawn(
     }
   }
 
-  // 10. budget-share sum over existing SPAWN edges + this proposal ≤ 1.
+  // 10. modelKind(若携带)须在 policy 白名单内。白名单默认为空 ⇒ 任何
+  //     modelKind 都被拒绝,模型选择权保留给宿主的 NodeFactory。与工具子集
+  //     同属权限面校验,故紧随其后。
+  if (p.modelKind !== undefined) {
+    try {
+      validateText(p.modelKind, policy.maxIdLength);
+    } catch {
+      return fail("MALFORMED_PROPOSAL", "modelKind field validation failed");
+    }
+    if (!policy.allowedModelKinds.includes(p.modelKind)) {
+      return fail("MODEL_KIND_NOT_PERMITTED", `model kind not permitted: ${p.modelKind}`);
+    }
+  }
+
+  // 11. budget-share sum over existing SPAWN edges + this proposal ≤ 1.
   const usedShare = existingSpawns.reduce((sum, edge) => sum + edge.weight, 0);
   if (usedShare + p.budgetShare > 1) {
     return fail("INVALID_BUDGET_SHARE", "budget share sum exceeds 1");
