@@ -43,6 +43,7 @@ import {
 } from "./mutable-state.js";
 import { parseResumableCheckpoint } from "./checkpoint.js";
 import { GraphController } from "./controller.js";
+import type { TrustTable } from "./trust.js";
 import type { AgentSpec, NodeFactory } from "./runner.js";
 
 /** 判断一个节点状态是否为「已完成」(终态,不再进前沿)。 */
@@ -64,6 +65,12 @@ export interface ResumeOptions {
   readonly policy: ControllerPolicy;
   readonly clock?: () => number;
   readonly rehydrateSpec: (dict: unknown) => AgentSpec;
+  /**
+   * 按角色键的可信度表。不随 checkpoint 持久化——它是跨运行的先验输入而非本次
+   * 运行的状态,故续跑时由调用方重新注入(通常就是磁盘上的那张表)。省略即空表,
+   * 等价于全部角色 trust=1。
+   */
+  readonly trustTable?: TrustTable;
 }
 
 /**
@@ -126,7 +133,11 @@ export function resumeController(
   }
 
   // 3. 建 MutableRunState 并填充。
-  const state: MutableRunState = createMutableRunState(finalSnapshot.runId, opts.policy);
+  const state: MutableRunState = createMutableRunState(
+    finalSnapshot.runId,
+    opts.policy,
+    opts.trustTable,
+  );
   state.status = finalSnapshot.status;
 
   // nodes:RUNNING(中断)重置 READY,其余原样重建。
@@ -207,7 +218,12 @@ export function resumeController(
   }
 
   // 4. 新控制器 + 受控注入,返回。
-  const controller = new GraphController(factory, opts.policy, opts.clock);
+  const controller = new GraphController(
+    factory,
+    opts.policy,
+    opts.clock,
+    opts.trustTable,
+  );
   controller.adoptRun(finalSnapshot.runId, state, events);
   return controller;
 }
