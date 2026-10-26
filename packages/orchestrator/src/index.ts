@@ -60,6 +60,26 @@ export { createMutableRunState, snapshotOf } from "./mutable-state.js";
 export type { MutableRunState } from "./mutable-state.js";
 export { validateSnapshot } from "./snapshot-validation.js";
 export { applyMessage, applySkip, applySpawn } from "./mutations.js";
+export {
+  archivedOutputOf,
+  assembleContext,
+  bufferDelivery,
+  estimateTokens,
+  rankDeliveries,
+  scoreDelivery,
+  selectWithinBudget,
+  toContextPackets,
+  trustOf,
+} from "./delivery.js";
+export type { Delivery, ScoredDelivery } from "./delivery.js";
+export {
+  buildRelevanceModel,
+  cosineRelevance,
+  relevance,
+  termVector,
+  tokenize,
+} from "./relevance.js";
+export type { RelevanceModel, TermVector } from "./relevance.js";
 export { RunnerCancelledError } from "./runner.js";
 export type { AgentSpec, NodeFactory, NodeRunner } from "./runner.js";
 export {
@@ -75,6 +95,7 @@ export { GraphController } from "./controller.js";
 export {
   buildResumableCheckpoint,
   parseResumableCheckpoint,
+  snapshotDigest,
 } from "./checkpoint.js";
 export type {
   ResumableCheckpoint,
@@ -85,3 +106,17 @@ export type {
 } from "./checkpoint.js";
 export { resumeController } from "./resume.js";
 export type { ResumeOptions } from "./resume.js";
+export {
+  DEFAULT_TRUST,
+  TRUST_TABLE_PATH,
+  applyTrustObservations,
+  createTrustTable,
+  deserializeTrustTable,
+  loadTrustTable,
+  saveTrustTable,
+  serializeTrustTable,
+  trustForRole,
+  updateTrust,
+  updateTrustBatch,
+} from "./trust.js";
+export type { TrustObservation, TrustStorage, TrustTable } from "./trust.js";

@@ -51,6 +51,7 @@ import {
   snapshotOf,
   type MutableRunState,
 } from "./mutable-state.js";
+import { createTrustTable, type TrustTable } from "./trust.js";
 import { validateSnapshot } from "./snapshot-validation.js";
 import {
   CONTROLLER_GENESIS_HASH,
@@ -72,7 +73,7 @@ import {
   settleRun,
   type Claim,
 } from "./scheduler.js";
-import { buildResumableCheckpoint } from "./checkpoint.js";
+import { buildResumableCheckpoint, snapshotDigest } from "./checkpoint.js";
 
 const CONTROLLER_EVENT_TYPES: readonly ControllerEventType[] = [
   "run_created",
@@ -164,10 +165,22 @@ export class GraphController {
   private readonly globalMutex = new Mutex();
   private readonly runMutex = new Map<string, Mutex>();
 
-  constructor(factory: NodeFactory, policy: ControllerPolicy, clock: () => number = () => 0) {
+  /**
+   * 按角色键的跨运行可信度表,作为**先验输入**在 createRun 时注入每个运行状态。
+   * 控制器只读不写:更新由评测侧在运行之间完成(见 trust.ts 文件头)。
+   */
+  private readonly trustTable: TrustTable;
+
+  constructor(
+    factory: NodeFactory,
+    policy: ControllerPolicy,
+    clock: () => number = () => 0,
+    trustTable: TrustTable = createTrustTable(),
+  ) {
     this.factory = factory;
     this.policy = policy;
     this.clock = clock;
+    this.trustTable = trustTable;
   }
 
   private mutexFor(runId: string): Mutex {
@@ -214,7 +227,7 @@ export class GraphController {
       if (this.runs.has(runId)) {
         throw new Error(`run already exists: ${runId}`);
       }
-      const state = createMutableRunState(runId, this.policy);
+      const state = createMutableRunState(runId, this.policy, this.trustTable);
       const entry: RunEntry = { state, events: [] };
 
       const nodeId = rootSpec.identity.nodeId;
@@ -479,9 +492,7 @@ export class GraphController {
       const events = entry.events;
       const chainHead =
         events.length > 0 ? events[events.length - 1]!.eventHash : CONTROLLER_GENESIS_HASH;
-      const stateDigest = sha256(
-        canonicalJson(runSnapshotToDict(snapshotOf(entry.state))),
-      );
+      const stateDigest = snapshotDigest(snapshotOf(entry.state));
       return canonicalJson({
         chainHead,
         eventCount: events.length,
@@ -610,7 +621,7 @@ export class GraphController {
     }
 
     const snapshot = GraphController.replay(events);
-    const digest = sha256(canonicalJson(runSnapshotToDict(snapshot)));
+    const digest = snapshotDigest(snapshot);
     if (root["stateDigest"] !== digest) {
       throw new Error("checkpoint state digest mismatch");
     }

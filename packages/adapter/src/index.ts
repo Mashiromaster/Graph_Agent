@@ -15,6 +15,9 @@ export type {
 } from "./model-types.js";
 export { ScriptedModel } from "./model.js";
 export type { ModelAdapter } from "./model.js";
+export { RecordingModel, requestKeyOf } from "./recording-model.js";
+export type { Transcript, TranscriptEntry } from "./recording-model.js";
+export { ReplayMissError, ReplayModel } from "./replay-model.js";
 export {
   FetchJSONTransport,
   InvalidModelResponse,
@@ -22,3 +25,5 @@ export {
 } from "./transport.js";
 export type { JSONTransport } from "./transport.js";
 export { OpenAICompatibleModel } from "./openai-compatible.js";
+export { AnthropicMessagesModel } from "./anthropic-messages.js";
+export type { AnthropicMessagesOptions } from "./anthropic-messages.js";

@@ -57,6 +57,18 @@ import {
 
 const RESUMABLE_SCHEMA_VERSION = 2 as const;
 
+/**
+ * 运行快照的权威摘要:`sha256(canonicalJson(runSnapshotToDict(snapshot)))`。
+ *
+ * 这是 checkpoint v1/v2 的 `stateDigest` 口径,也是 replay 校验时的复算口径。
+ * 单一实现,供 controller.checkpoint / replayCheckpoint / build+parseResumable
+ * 以及确定性实验(record-replay)共用——口径一旦分叉,「同一快照」的判定就会
+ * 在不同调用点得出不同结论,因此此函数是唯一的真源。
+ */
+export function snapshotDigest(snapshot: RunSnapshot): string {
+  return sha256(canonicalJson(runSnapshotToDict(snapshot)));
+}
+
 /** v2 checkpoint 的顶层键集(排序,供严格键集校验)。 */
 const RESUMABLE_CHECKPOINT_KEYS = [
   "chainHead",
@@ -123,7 +135,7 @@ export function buildResumableCheckpoint(
 ): string {
   const chainHead =
     events.length > 0 ? events[events.length - 1]!.eventHash : CONTROLLER_GENESIS_HASH;
-  const stateDigest = sha256(canonicalJson(runSnapshotToDict(snapshotOf(state))));
+  const stateDigest = snapshotDigest(snapshotOf(state));
 
   const nodes: ResumableNode[] = [...state.nodes.values()]
     .sort((a, b) => (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0))
@@ -270,7 +282,7 @@ export function parseResumableCheckpoint(json: string): ParsedResumableCheckpoin
 
   // v1 校验:链验证 + 拓扑 digest + snapshot 再校验。
   const finalSnapshot = GraphController.replay(events);
-  const digest = sha256(canonicalJson(runSnapshotToDict(finalSnapshot)));
+  const digest = snapshotDigest(finalSnapshot);
   if (root["stateDigest"] !== digest) {
     throw new Error("checkpoint state digest mismatch");
   }
