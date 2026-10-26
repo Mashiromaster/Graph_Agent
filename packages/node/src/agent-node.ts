@@ -24,7 +24,7 @@ import type { AgentSpec } from "./spec.js";
 import type { Tool } from "./tools.js";
 import type { SessionMemory } from "./memory.js";
 import {
-  GRAPH_TOOL_DEFINITIONS,
+  graphToolDefinitionsFor,
   MESSAGE_TOOL,
   ProposalCollector,
   SKIP_CONTEXT_TOOL,
@@ -62,6 +62,8 @@ export class AgentNode implements NodeRunner {
   private readonly model: ModelAdapter;
   private readonly localTools: Map<string, Tool>;
   private readonly localToolDefs: readonly ToolDefinition[];
+  /** 按本节点策略筛选后的图工具清单(构造时定,策略不可变)。 */
+  private readonly graphToolDefs: readonly ToolDefinition[];
   private readonly memory: SessionMemory | undefined;
   private readonly clock: () => number;
 
@@ -76,6 +78,7 @@ export class AgentNode implements NodeRunner {
     this.model = input.model;
     this.memory = input.memory;
     this.clock = input.clock ?? (() => 0);
+    this.graphToolDefs = Object.freeze(graphToolDefinitionsFor(input.spec));
 
     const map = new Map<string, Tool>();
     for (const tool of input.tools ?? []) {
@@ -208,7 +211,9 @@ export class AgentNode implements NodeRunner {
         nodeId,
         instructions: this.spec.instructions,
         messages,
-        tools: [...this.localToolDefs, ...GRAPH_TOOL_DEFINITIONS],
+        // 只 advertise 本节点策略真正允许的图工具(见 graphToolDefinitionsFor):
+        // 否则模型会对着不可用的能力规划,产出注定被拒的提案。
+        tools: [...this.localToolDefs, ...this.graphToolDefs],
         metadata: { turn, ...input.metadata },
       });
 

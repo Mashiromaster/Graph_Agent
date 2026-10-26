@@ -8,6 +8,7 @@ import {
   ProposalCollector,
   SKIP_CONTEXT_TOOL,
   SPAWN_TOOL,
+  graphToolDefinitionsFor,
 } from "../src/graph-tools.js";
 
 function makeSpec(policy?: Parameters<typeof createAgentSpec>[0]["policy"]) {
@@ -244,5 +245,56 @@ describe("ProposalCollector dispatch", () => {
     );
     expect(m0.proposal?.proposalId).not.toBe(s0.proposal?.proposalId);
     expect(m0.proposal?.proposalId).toMatch(HEX64);
+  });
+});
+
+describe("graphToolDefinitionsFor", () => {
+  it("advertises only spawn by default (messages and skip are opt-in)", () => {
+    const names = graphToolDefinitionsFor(makeSpec()).map((d) => d.name);
+    expect(names).toEqual([SPAWN_TOOL]);
+  });
+
+  it("adds message and skip tools when the policy enables them", () => {
+    const names = graphToolDefinitionsFor(
+      makeSpec({ allowDirectMessages: true, allowSkipContext: true }),
+    ).map((d) => d.name);
+    expect(names).toEqual([SPAWN_TOOL, MESSAGE_TOOL, SKIP_CONTEXT_TOOL]);
+  });
+
+  it("withholds spawn when the node cannot have children", () => {
+    // 模型若看到一个注定被拒的工具,会据此规划并产出无效提案,而那些拒绝
+    // 还会计入提案有效率(reward 信号),把策略后果错记成模型失误。
+    expect(graphToolDefinitionsFor(makeSpec({ maxChildren: 0 })).map((d) => d.name)).toEqual(
+      [],
+    );
+    expect(
+      graphToolDefinitionsFor(makeSpec({ maxGeneration: 0 })).map((d) => d.name),
+    ).toEqual([]);
+  });
+
+  it("falls back to defaults when the spec carries no policy", () => {
+    // 编排层物化子节点时构造的 spec 是 {identity, budget, role},不带 policy
+    // (orchestrator 刻意不依赖 node)。缺失时必须退回默认值而非崩溃。
+    const bare = {
+      identity: createAgentIdentity({
+        nodeId: "child",
+        name: "child",
+        role: "worker",
+        generation: 1,
+      }),
+      budget: createNodeBudget({ maxTotalTokens: 100 }),
+      role: "worker",
+    } as unknown as Parameters<typeof graphToolDefinitionsFor>[0];
+    expect(() => graphToolDefinitionsFor(bare)).not.toThrow();
+    expect(graphToolDefinitionsFor(bare).map((d) => d.name)).toEqual([SPAWN_TOOL]);
+  });
+
+  it("never advertises a tool absent from GRAPH_TOOL_DEFINITIONS", () => {
+    const all = new Set(GRAPH_TOOL_DEFINITIONS.map((d) => d.name));
+    for (const def of graphToolDefinitionsFor(
+      makeSpec({ allowDirectMessages: true, allowSkipContext: true }),
+    )) {
+      expect(all.has(def.name)).toBe(true);
+    }
   });
 });
