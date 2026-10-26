@@ -1,0 +1,350 @@
+% A Deterministic Runtime for Agent-Graph Research
+%
+% 投稿目标:TMLR。正文须 ≤12 页(不含参考文献与附录)——这是把审稿期从 4 周
+% 压到 2 周的硬条件,见 jmlr.org/tmlr/reviewer-guide.html。
+%
+% 本文件刻意不内联 TMLR 样式:投稿前须从 jmlr.org/tmlr/ 下载官方 tmlr.sty
+% 并放到本目录。格式违规是 desk reject 的理由,不要用自制样式凑。
+%
+% 编译:latexmk -pdf main.tex   (本机当前无 LaTeX 工具链,见 README)
+%
+% ⚠ 所有标为 \TODO 的数字尚未测得。实况实验需要 API 凭据;在跑完之前
+%   不得填入任何占位数值——编造的数字即便标注"示意"也会污染后续写作。
+
+\documentclass{article}
+
+% 投稿时替换为:\usepackage{tmlr}
+% 匿名评审阶段用 tmlr(默认匿名);camera-ready 用 \usepackage[accepted]{tmlr}
+\usepackage[preprint]{neurips_2024}  % 占位,仅供本地排版预览
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{graphicx}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}{Definition}
+\newcommand{\TODO}[1]{\textcolor{red}{[TODO: #1]}}
+\usepackage{xcolor}
+
+\title{A Deterministic Runtime for Agent-Graph Research,\\
+       and What It Says About Weights and Messages}
+
+\author{Anonymous}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Comparisons between multi-agent LLM topologies are difficult to reproduce.
+Wall-clock concurrency, per-arm differences in budget accounting, and divergent
+partial-failure handling all perturb the outcome, so a reported topology effect
+is confounded with runtime nondeterminism and with unequal effective budgets.
+We present an agent-graph runtime built so that \emph{the runtime contributes
+zero entropy}: given a recorded sequence of model responses, the final run
+snapshot is reproducible bit-exactly regardless of concurrency, scheduling, or
+completion order. Three properties make this possible --- order-invariant
+super-step merging, fail-closed all-or-nothing ingestion of agent proposals, and
+a budget ledger that enforces parity by construction rather than by post-hoc
+filtering. Treating the runtime as a measurement instrument, we then ask what
+agent-graph mechanisms actually buy at matched token budget, ablating weighted
+scheduling, budget allocation, cross-generation skip context, and message
+passing as independent toggles with everything else held bit-identical.
+\TODO{one-sentence summary of the empirical findings}
+All experiments ship with replay transcripts, so every number can be re-derived
+offline at zero API cost.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+\TODO{1.25pp. The reproducibility gap in multi-agent LLM evaluation. Three
+claims: (i) conditional determinism --- the runtime contributes zero entropy;
+(ii) a fail-closed trust boundary in which agents propose and only the
+controller mutates the graph; (iii) budget parity by construction. Then preview
+the mechanism findings.}
+
+The claim in (i) needs stating precisely, because the obvious stronger version
+is false. At temperature $>0$ two live runs of the same configuration do not
+agree, and we do not claim they do. What we claim and verify is that the
+\emph{runtime} is not a source of variation: fixing the model's responses fixes
+the final snapshot digest exactly, under any concurrency limit and any
+completion order. All remaining entropy in an experiment is therefore
+attributable to the model, which is what makes a topology comparison meaningful.
+
+\section{Related work}
+\label{sec:related}
+
+\TODO{1.0pp. Three paragraphs plus one compressed capability table.}
+
+Recursive agent runtimes --- LangGraph~\citep{langgraph}, AutoGen's
+GraphFlow~\citep{wu2023autogen}, MetaGPT~\citep{hong2024metagpt},
+CrewAI~\citep{crewai}, CAMEL~\citep{li2023camel}, and
+Swarm~\citep{openaiswarm} --- organise agents as trees or predefined workflows
+and offer no learnable topology. Graph-optimisation work ---
+GPTSwarm~\citep{zhuge2024gptswarm}, DyLAN~\citep{liu2024dylan},
+AgentPrune~\citep{zhang2024agentprune}, G-Designer~\citep{zhang2024gdesigner},
+AutoAgents~\citep{chen2023autoagents}, and MacNet~\citep{qian2024macnet} ---
+treats the graph as optimisable but fixes it before execution. Neither camp
+offers determinism guarantees or budget parity across compared configurations,
+which is the gap this work addresses.
+
+\section{Runtime model and determinism}
+\label{sec:runtime}
+
+\TODO{2.5pp.}
+
+\subsection{Attributed graph over time}
+
+\TODO{Formalise $G_t = (V_t, E_t, X_t, W_t)$; four typed edge kinds and why a
+single edge type is insufficient; cycle unrolling to
+$(\mathrm{agent\_id}, \mathrm{round}, \mathrm{invocation\_id})$.}
+
+\subsection{Proposals and the trust boundary}
+
+Agents cannot mutate the graph. A model's \texttt{graph\_\_*} tool calls produce
+only \emph{proposals} in the returned result; the controller re-validates every
+proposal at ingestion and materialises nodes and edges itself. Ingestion is
+fail-closed and all-or-nothing: an invalid result adopts \emph{none} of its
+proposals and commits its entire token reservation.
+
+\subsection{Super-step execution}
+
+Execution proceeds in BSP super-steps~\citep{valiant1990bsp} with three phases:
+freeze the ready frontier and claim reservations under a lock; execute claimed
+runners concurrently with \emph{no} lock held; re-acquire the lock and merge
+outcomes \emph{ordered by claim sequence rather than completion order}.
+
+\begin{theorem}[Order-invariant merge]
+\label{thm:order}
+Fix a root specification, a controller policy, and the multiset of agent results
+produced in a run. The final snapshot is independent of the order in which
+runners complete and of the concurrency limit.
+\end{theorem}
+
+\TODO{Proof sketch: merge iterates outcomes sorted by \texttt{execution.sequence},
+a value assigned inside the critical section; all records are immutable and
+replaced rather than mutated in place; all mutators are deterministic functions
+of (state, result) with identifiers derived by hashing. Hence the merge is a
+fixed fold over a fixed sequence.}
+
+\begin{theorem}[Budget parity]
+\label{thm:budget}
+On every termination path --- success, structured failure, invalid result,
+runner exception, cancellation, and dependency block --- committed tokens never
+exceed the configured limit, and reserved tokens return to zero at convergence.
+\end{theorem}
+
+\TODO{Proof sketch: enumerate the six paths against the ledger transitions
+(reserve / claim / commit-success / commit-full / release).}
+
+\subsection{Audit chain and resumability}
+
+\TODO{SHA-256 chains store digests only, never plaintext. Checkpoint v1 is pure
+snapshot replay; v2 adds a resumable slice so completed nodes replay from an
+archive without re-running or re-billing.}
+
+\section{Mechanisms under study}
+\label{sec:mechanisms}
+
+\TODO{2.0pp.}
+
+\subsection{Four disjoint scalars}
+
+\begin{description}
+\item[\texttt{priority}] orders the ready frontier and nothing else.
+\item[\texttt{budget\_share}] sizes a child's token allocation.
+\item[\texttt{context\_gate}] bounds how much of an edge's payload may enter the
+      target's context.
+\item[\texttt{trust}] gates and ranks delivery.
+\end{description}
+
+Keeping these disjoint is deliberate: a single fused ``weight'' conflates
+scheduling, economics, information flow, and credibility, after which no
+ablation can attribute an effect to any one of them.
+
+\paragraph{Why trust learning must be cross-run and role-keyed.}
+This is a structural consequence worth stating as a result rather than a
+limitation. In a runtime where a node executes exactly once and never re-enters,
+within-run node-level trust learning is impossible by construction: for node
+$n$'s trust to influence any decision it would have to be updated after $n$
+produces its result and then read again, but $n$ never runs again, and its
+children froze their identities at spawn time. The only feasible learning is
+therefore across runs and aggregated by role. We use an interpretable
+exponential moving average, $\mathrm{trust}^{(t+1)} = (1-\alpha)\,
+\mathrm{trust}^{(t)} + \alpha\, r^{(t)}$, and explicitly decline end-to-end
+reinforcement learning at this stage; credit assignment is by leave-one-out
+role ablation.
+
+\subsection{Typed context delivery}
+
+\TODO{Message injection, \texttt{depends\_on} result propagation (fan-in), skip
+gating, and the token knapsack. Explain the mandatory/discretionary split:
+\texttt{depends\_on} is declarative data flow that a lexical relevance score has
+no authority to veto, whereas messages and skip context are discretionary
+evidence subject to routing.}
+
+Routing scores a candidate delivery as
+$s_{u \rightarrow v} = \mathrm{priority}_u \cdot \mathrm{rel}(u,v) \cdot
+\mathrm{trust}_{\mathrm{role}(u)}$, selects Top-$K$, then fills a token budget
+greedily. Relevance is a deterministic lexical IDF-weighted cosine. Embeddings
+are excluded on purpose: they would add a runtime dependency and, if served
+remotely, a source of nondeterminism at the centre of the zero-entropy claim.
+We therefore report lexical relevance as a \emph{lower bound} on what routing
+can achieve, which makes a positive result conservative and obliges us to hedge
+a null one.
+
+\subsection{Why black-box skip connections are semantic, not residual}
+
+\TODO{With black-box APIs there is no access to hidden states, so
+$h_{l+1} = F(h_l) + h_l$ is unavailable. What is achievable is a semantic skip:
+relevance filter, instruction isolation, structured summary, gating, and
+injection as evidence rather than as a system instruction.}
+
+\section{Experimental design}
+\label{sec:design}
+
+\TODO{1.5pp.}
+
+\subsection{Arms and toggles}
+
+\begin{table}[t]
+\centering
+\caption{Experimental arms. All arms share one token ceiling, enforced by the
+controller's ledger rather than by discarding overspent runs.}
+\label{tab:arms}
+\begin{tabular}{llp{7.2cm}}
+\toprule
+Arm & Label & Increment \\
+\midrule
+A1 & single agent & spawn tool withheld; \texttt{maxNodes}~$=1$ \\
+A2 & equal-weight tree & $+$ spawn, uniform \texttt{budget\_share}, fixed \texttt{priority} \\
+A3 & weighted tree & $+$ model-chosen \texttt{priority} and \texttt{budget\_share} \\
+A4 & fixed skip graph & $+$ cross-generation skip context \\
+A5 & dynamic graph & $+$ messages and role-keyed trust \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two orthogonal toggles, \textsc{fan-in} and \textsc{delivery}, ablate the
+mechanisms behind the communication claim. The delivery toggle is implemented by
+closing the context-injection token budget rather than by branching, so control
+and treatment traverse identical code paths and differ only in available budget.
+
+\subsection{Tasks, scoring, and budget parity}
+
+Scorers are deterministic pure functions. This is load-bearing rather than
+fastidious: variance is a reported metric, so a stochastic scorer would mix
+scorer variance into the quantity we attribute to the model. That requirement is
+also the honest reason only two task families survive --- unit-testable code
+generation~\citep{chen2021humaneval,liu2023evalplus} and mathematics with
+deterministic answers~\citep{cobbe2021gsm8k}.
+
+\subsection{Objective and the weight sweep}
+
+We report $R = \mathrm{Quality} - \lambda\,\mathrm{Cost} - \mu\,\mathrm{Latency}
+- \nu\,\mathrm{Failure}$, but treat the Pareto front over quality and cost as
+the primary figure. The reason is empirical, not stylistic: in pilot runs the
+ranking of arms under $R$ flips as $\lambda$ crosses a threshold, so any single
+choice of $\lambda$ would be an unjustifiable degree of freedom. We therefore
+sweep $\lambda/\mu/\nu$ and report whether conclusions survive the sweep.
+
+\subsection{Tiered compute and what is not covered}
+
+\begin{table}[t]
+\centering
+\caption{Tiered experiment matrix. The frontier tier is a deliberate
+confirmatory subset, reported here rather than left for a reader to infer from
+row counts.}
+\label{tab:matrix}
+\begin{tabular}{llll}
+\toprule
+Tier & Conditions & Seeds & Cells \\
+\midrule
+small    & 7 (5 arms $+$ 2 ablations) & 5 & \TODO{} \\
+mid      & 7                          & 5 & \TODO{} \\
+frontier & 3 (A1, A3, A5)             & 3 & \TODO{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Results}
+\label{sec:results}
+
+\TODO{2.75pp. No numbers may be written here until the live experiments have
+run. Each subsection below states what will be reported.}
+
+\subsection{Determinism validation}
+
+\TODO{Replay digest match rate --- must be 100\%; order-shuffle invariance
+across concurrency limits and completion orders. A rate below 100\% would mean
+an undiscovered source of nondeterminism and would invalidate
+Theorem~\ref{thm:order}; we report it as a stop-the-line check rather than as a
+summary statistic.}
+
+\subsection{Weights}
+
+\TODO{priority vs budget\_share vs trust, ablated. Paired per-instance
+comparisons with confidence intervals, not bare mean differences.}
+
+\subsection{Messages and fan-in}
+
+\TODO{delivery on/off, fan-in on/off, skip on/off; skip-utilisation rate.}
+
+\subsection{Robustness to an injected faulty agent}
+
+\TODO{Contamination of the final answer by a confidently-wrong role, with and
+without the minimum-trust gate.}
+
+\subsection{Cross-model stability}
+
+\TODO{Whether effects replicate across model scales. An effect that appears on
+one model only is reported as model-specific --- a finding, not a failure.}
+
+\section{Limitations and conclusion}
+\label{sec:limits}
+
+Determinism is conditional on the model: we claim zero runtime entropy, not
+bit-identical live runs. Relevance is lexical rather than semantic, so routing
+results are a lower bound. Trust learning is cross-run and role-level, which
+follows from the single-shot node model and cannot be loosened without changing
+that model. Two task families are covered; the four families without
+deterministic judges are discussed in the appendix but not measured. No learned
+topology optimiser is included --- rule-based and statistical mechanisms only.
+Finally, the code-generation scorer executes model-generated code under
+process-level isolation (separate subprocess, blocked network and
+subprocess modules, wall-clock and memory limits, whitelisted environment,
+disposable working directory). This is process isolation, not a sandbox: the
+child runs as the invoking user. We state this plainly in the artifact rather
+than describing the setup as sandboxed.
+
+\TODO{Conclusion paragraph once results exist.}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\appendix
+
+\section{Framework survey}
+\TODO{Full 14-framework comparison across seven capability axes.}
+
+\section{Rejection codes}
+\TODO{The validation codes enforced at the ingestion boundary.}
+
+\section{Hash chain and checkpoint schemas}
+\TODO{Event chain schema; checkpoint v1 and v2 formats.}
+
+\section{Per-instance results and cost tables}
+\TODO{}
+
+\section{Mechanisms considered and declined}
+\TODO{Learned topology optimiser; hidden-state residual connections;
+end-to-end RL credit assignment. Include the feasibility scores and the
+reasoning for declining each.}
+
+\end{document}

@@ -1,0 +1,187 @@
+% 参考文献。arXiv 号来自调研文档 §18;另补入调研缺失的四个主流框架
+% (CrewAI / MetaGPT / CAMEL / OpenAI Swarm)——审稿人几乎必然会问到它们。
+
+% ── Agent 图与拓扑优化 ──────────────────────────────────────────────────────
+
+@inproceedings{zhuge2024gptswarm,
+  title     = {{GPTSwarm}: Language Agents as Optimizable Graphs},
+  author    = {Zhuge, Mingchen and Wang, Wenyi and Kirsch, Louis and Faccio, Francesco
+               and Khizbullin, Dmitrii and Schmidhuber, J{\"u}rgen},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2024},
+  eprint    = {2402.16823},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+@article{liu2024dylan,
+  title   = {A Dynamic {LLM}-Powered Agent Network for Task-Oriented Agent Collaboration},
+  author  = {Liu, Zijun and Zhang, Yanzhe and Li, Peng and Liu, Yang and Yang, Diyi},
+  journal = {arXiv preprint},
+  year    = {2023},
+  eprint  = {2310.02170},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL}
+}
+
+@article{zhang2024agentprune,
+  title   = {Cut the Crap: An Economical Communication Pipeline for
+             {LLM}-based Multi-Agent Systems},
+  author  = {Zhang, Guibin and Yue, Yanwei and Li, Zhixun and Yun, Sukwon and
+             Wan, Guancheng and Wang, Kun and Cheng, Dawei and Yu, Jeffrey Xu and
+             Chen, Tianlong},
+  journal = {arXiv preprint},
+  year    = {2024},
+  eprint  = {2410.02506},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.MA}
+}
+
+@article{zhang2024gdesigner,
+  title   = {{G-Designer}: Architecting Multi-agent Communication Topologies via
+             Graph Neural Networks},
+  author  = {Zhang, Guibin and Yue, Yanwei and Sun, Xiangguo and Wan, Guancheng and
+             Yu, Miao and Fang, Junfeng and Wang, Kun and Cheng, Dawei},
+  journal = {arXiv preprint},
+  year    = {2024},
+  eprint  = {2410.11782},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.MA}
+}
+
+@article{qian2024macnet,
+  title   = {Scaling Large Language Model-based Multi-Agent Collaboration},
+  author  = {Qian, Chen and Xie, Zihao and Wang, Yifei and Liu, Wei and Dang, Yufan and
+             Du, Zhuoyun and Chen, Weize and Yang, Cheng and Liu, Zhiyuan and Sun, Maosong},
+  journal = {arXiv preprint},
+  year    = {2024},
+  eprint  = {2406.07155},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.MA}
+}
+
+@article{chen2023autoagents,
+  title   = {{AutoAgents}: A Framework for Automatic Agent Generation},
+  author  = {Chen, Guangyao and Dong, Siwei and Shu, Yu and Zhang, Ge and
+             Sesay, Jaward and Karlsson, B{\"o}rje F. and Fu, Jie and Shi, Yemin},
+  journal = {arXiv preprint},
+  year    = {2023},
+  eprint  = {2309.17288},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+% ── 递归 / 编排运行时 ───────────────────────────────────────────────────────
+
+@misc{langgraph,
+  title        = {{LangGraph}: Low-level Orchestration Framework for Stateful Agents},
+  author       = {{LangChain}},
+  year         = {2024},
+  howpublished = {\url{https://github.com/langchain-ai/langgraph}},
+  note         = {Accessed 2026-10}
+}
+
+@inproceedings{wu2023autogen,
+  title     = {{AutoGen}: Enabling Next-Gen {LLM} Applications via
+               Multi-Agent Conversation},
+  author    = {Wu, Qingyun and Bansal, Gagan and Zhang, Jieyu and Wu, Yiran and
+               Li, Beibin and Zhu, Erkang and Jiang, Li and Zhang, Xiaoyun and
+               Zhang, Shaokun and Liu, Jiale and Awadallah, Ahmed Hassan and
+               White, Ryen W. and Burger, Doug and Wang, Chi},
+  booktitle = {Conference on Language Modeling (COLM)},
+  year      = {2024},
+  eprint    = {2308.08155},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+@inproceedings{hong2024metagpt,
+  title     = {{MetaGPT}: Meta Programming for a Multi-Agent Collaborative Framework},
+  author    = {Hong, Sirui and Zhuge, Mingchen and Chen, Jonathan and Zheng, Xiawu and
+               Cheng, Yuheng and Wang, Jinlin and Zhang, Ceyao and Wang, Zili and
+               Yau, Steven Ka Shing and Lin, Zijuan and Zhou, Liyang and Ran, Chenyu and
+               Xiao, Lingfeng and Wu, Chenglin and Schmidhuber, J{\"u}rgen},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  eprint    = {2308.00352},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+@inproceedings{li2023camel,
+  title     = {{CAMEL}: Communicative Agents for ``Mind'' Exploration of
+               Large Language Model Society},
+  author    = {Li, Guohao and Hammoud, Hasan Abed Al Kader and Itani, Hani and
+               Khizbullin, Dmitrii and Ghanem, Bernard},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+  eprint    = {2303.17760},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+@misc{crewai,
+  title        = {{CrewAI}: Framework for Orchestrating Role-Playing,
+                  Autonomous {AI} Agents},
+  author       = {Moura, Jo{\~a}o},
+  year         = {2024},
+  howpublished = {\url{https://github.com/crewAIInc/crewAI}},
+  note         = {Accessed 2026-10}
+}
+
+@misc{openaiswarm,
+  title        = {{Swarm}: Educational Framework for Ergonomic, Lightweight
+                  Multi-Agent Orchestration},
+  author       = {{OpenAI}},
+  year         = {2024},
+  howpublished = {\url{https://github.com/openai/swarm}},
+  note         = {Accessed 2026-10}
+}
+
+% ── 基准与任务族 ────────────────────────────────────────────────────────────
+
+@article{cobbe2021gsm8k,
+  title   = {Training Verifiers to Solve Math Word Problems},
+  author  = {Cobbe, Karl and Kosaraju, Vineet and Bavarian, Mohammad and Chen, Mark and
+             Jun, Heewoo and Kaiser, Lukasz and Plappert, Matthias and Tworek, Jerry and
+             Hilton, Jacob and Nakano, Reiichiro and Hesse, Christopher and
+             Schulman, John},
+  journal = {arXiv preprint},
+  year    = {2021},
+  eprint  = {2110.14168},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG}
+}
+
+@article{chen2021humaneval,
+  title   = {Evaluating Large Language Models Trained on Code},
+  author  = {Chen, Mark and Tworek, Jerry and Jun, Heewoo and Yuan, Qiming and others},
+  journal = {arXiv preprint},
+  year    = {2021},
+  eprint  = {2107.03374},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG}
+}
+
+@inproceedings{liu2023evalplus,
+  title     = {Is Your Code Generated by {ChatGPT} Really Correct? Rigorous
+               Evaluation of Large Language Models for Code Generation},
+  author    = {Liu, Jiawei and Xia, Chunqiu Steven and Wang, Yuyao and Zhang, Lingming},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+  eprint    = {2305.01210},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.SE}
+}
+
+% ── 复现性与确定性 ──────────────────────────────────────────────────────────
+
+@article{valiant1990bsp,
+  title   = {A Bridging Model for Parallel Computation},
+  author  = {Valiant, Leslie G.},
+  journal = {Communications of the ACM},
+  volume  = {33},
+  number  = {8},
+  pages   = {103--111},
+  year    = {1990}
+}
