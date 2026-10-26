@@ -1,0 +1,290 @@
+/**
+ * 实验 harness:驱动一次 (条件 × 题目 × 种子) 运行,产出一行可复算的记录。
+ *
+ * ## 为什么每次运行都包一层 RecordingModel
+ *
+ * transcript 是本工作最强的严谨性资产:交出它,审稿人就能零 API 成本地重放
+ * 每一个数字,并自行验证「运行时贡献零熵」。因此录制不是可选项,而是每次运行
+ * 的固定开销(内存里一个数组,代价可忽略)。
+ *
+ * ## 为什么用注入的 clock 而非 Date.now
+ *
+ * 项目全局的确定性纪律:无 Date.now/Math.random。延迟测量是唯一必须读真实时钟
+ * 的地方,故把它隔离在 `wallClock` 参数里——默认用 performance.now,测试里换成
+ * 可控计数器,从而 harness 自身的契约测试完全离线且确定。
+ *
+ * ## 预算对等
+ *
+ * 不在此处做任何预算核算:上限由 arms.policyFor 设定,由控制器 ledger 强制。
+ * harness 只**记录** committedTokens,不裁剪、不筛除超支运行——若出现超支那是
+ * 运行时的 bug,应当暴露而非被实验脚本掩盖。
+ */
+
+import type { AgentResult } from "@graph-agent/core";
+import { createAgentInput } from "@graph-agent/core";
+import { RecordingModel, type ModelAdapter, type Transcript } from "@graph-agent/adapter";
+import {
+  EdgeType,
+  GraphController,
+  NodeState,
+  snapshotDigest,
+  type NodeFactory,
+  type RunSnapshot,
+  type TrustTable,
+} from "@graph-agent/orchestrator";
+import { AgentNode, agentSpecToDict, type AgentSpec } from "@graph-agent/node";
+import { policyFor, rootSpecFor, type Condition } from "./arms.js";
+import { withSeedMetadata } from "./models.js";
+import { conditionKey } from "./arms.js";
+import type { TaskInstance } from "./task.js";
+
+/** 一次运行的全部可观测量,一行 JSONL。 */
+export interface RunRecord {
+  readonly conditionKey: string;
+  readonly armId: string;
+  readonly fanIn: boolean;
+  readonly delivery: boolean;
+  readonly taskId: string;
+  readonly family: string;
+  readonly seed: number;
+  readonly model: string;
+  /** 快照摘要:replay 验证的锚点。 */
+  readonly digest: string;
+  readonly runStatus: string;
+  /** 程序化评分 [0,1]。 */
+  readonly quality: number;
+  readonly qualityDetail: string;
+  readonly committedTokens: number;
+  readonly limitTokens: number;
+  readonly latencyMs: number;
+  readonly nodeCount: number;
+  readonly edgeCount: number;
+  readonly maxDepth: number;
+  readonly failureCount: number;
+  readonly proposalCount: number;
+  readonly rejectedCount: number;
+  /** 实际注入到某个节点上下文的投递条数。 */
+  readonly deliveredCount: number;
+  /** skip_context 边中真正产生投递的比例;无 skip 边时为 null。 */
+  readonly skipUtilization: number | null;
+  readonly modelCalls: number;
+}
+
+/** 模型工厂:每个节点一个适配器实例(便于按节点换脚本或注入故障)。 */
+export type ModelFactory = (args: {
+  nodeId: string;
+  role: string;
+  seed: number;
+}) => ModelAdapter;
+
+export interface HarnessOptions {
+  readonly condition: Condition;
+  readonly task: TaskInstance;
+  readonly seed: number;
+  /** 进 JSONL 的模型标识(如 "deepseek-v4-flash")。 */
+  readonly modelName: string;
+  readonly modelFactory: ModelFactory;
+  readonly trustTable?: TrustTable;
+  /** 真实时钟,仅用于延迟测量;测试注入可控计数器。 */
+  readonly wallClock?: () => number;
+}
+
+export interface HarnessResult {
+  readonly record: RunRecord;
+  readonly snapshot: RunSnapshot;
+  /** 合并后的 transcript,供离线重放与补充材料。 */
+  readonly transcript: Transcript;
+  /** 每个节点实际收到的上下文条数,用于诊断投递。 */
+  readonly contextCounts: ReadonlyMap<string, number>;
+}
+
+/** 从 spawn 边推算最大深度(generation 已在节点上,取最大值即可)。 */
+function maxDepthOf(snapshot: RunSnapshot): number {
+  let depth = 0;
+  for (const node of snapshot.nodes) {
+    if (node.generation > depth) {
+      depth = node.generation;
+    }
+  }
+  return depth;
+}
+
+/** 执行一次运行。 */
+export async function runOne(opts: HarnessOptions): Promise<HarnessResult> {
+  const { condition, task, seed, modelFactory } = opts;
+  const wallClock = opts.wallClock ?? (() => performance.now());
+  const policy = policyFor(condition);
+
+  const recorders: RecordingModel[] = [];
+  const contextCounts = new Map<string, number>();
+
+  const factory: NodeFactory = {
+    create: ({ spec, toolNames }) => {
+      const nodeId = spec.identity.nodeId;
+      const role = spec.role ?? "worker";
+      const recorder = new RecordingModel(modelFactory({ nodeId, role, seed }));
+      recorders.push(recorder);
+      // 种子标记必须在 AgentNode 与 recorder **之间**:AgentNode 内部用
+      // createModelRequest 自建请求(metadata 仅含 turn),故在工厂处包
+      // withSeedMetadata 无效——那层在 recorder 内侧,recorder 已按未标记的
+      // 请求算过 requestKey。结果是不同种子的同题请求共用一个键,transcript
+      // 把 N 个种子的响应堆在一起,重放时种子与响应失去对应关系。
+      const inner = new AgentNode({
+        spec: spec as AgentSpec,
+        model: withSeedMetadata(recorder, seed),
+        clock: () => 0,
+      });
+      void toolNames; // 图工具由 AgentNode 内建;本实验不注入本地工具
+      return {
+        spec: inner.spec,
+        run: async (input, signal): Promise<AgentResult> => {
+          contextCounts.set(nodeId, input.context.length);
+          return inner.run(input, signal);
+        },
+      };
+    },
+  };
+
+  const rootSpec = rootSpecFor(condition);
+  const rootRunner = factory.create({
+    spec: rootSpec as unknown as Parameters<NodeFactory["create"]>[0]["spec"],
+    toolNames: [],
+  });
+
+  const controller = new GraphController(
+    factory,
+    policy,
+    () => 0,
+    opts.trustTable,
+  );
+  const runId = `${conditionKey(condition)}::${task.id}::${seed}`;
+  await controller.createRun(
+    runId,
+    rootSpec as unknown as Parameters<GraphController["createRun"]>[1],
+    rootRunner,
+    createAgentInput({ task: task.prompt, context: [], sessionId: runId }),
+  );
+
+  const startedAt = wallClock();
+  // fanIn 开启时:root 结算后给未运行的子节点之间补依赖边,形成 reducer 模式。
+  // 这里走 superstep 粒度而非 runUntilIdle,以便在中途插入依赖边。
+  let snapshot = await controller.runSuperstep(runId);
+  if (condition.toggles.fanIn && condition.arm.spawn) {
+    snapshot = await wireFanIn(controller, runId, snapshot);
+  }
+  const finalSnapshot = await controller.runUntilIdle(runId);
+  const latencyMs = wallClock() - startedAt;
+
+  // 质量分:取 root 的输出(root 负责综合)。
+  const rootOutput = await extractRootOutput(controller, runId);
+  const quality = await task.scorer(rootOutput);
+
+  const transcript: Transcript = Object.freeze({
+    entries: Object.freeze(recorders.flatMap((r) => [...r.transcript().entries])),
+  });
+
+  let proposalCount = 0;
+  let rejectedCount = 0;
+  for (const decision of finalSnapshot.decisions) {
+    proposalCount += 1;
+    if (decision.state === "rejected") {
+      rejectedCount += 1;
+    }
+  }
+  let failureCount = 0;
+  for (const node of finalSnapshot.nodes) {
+    if (node.state === NodeState.FAILED || node.state === NodeState.BLOCKED) {
+      failureCount += 1;
+    }
+  }
+  const skipEdges = finalSnapshot.edges.filter((e) => e.type === EdgeType.SKIP_CONTEXT);
+  let deliveredCount = 0;
+  for (const count of contextCounts.values()) {
+    deliveredCount += count;
+  }
+  // 扣除 spawn 时固有的一条 instructions packet(每个非 root 节点各一条)。
+  const spawnPackets = finalSnapshot.nodes.filter((n) => n.parentNodeId !== null).length;
+  deliveredCount = Math.max(0, deliveredCount - spawnPackets);
+
+  const record: RunRecord = Object.freeze({
+    conditionKey: conditionKey(condition),
+    armId: condition.arm.id,
+    fanIn: condition.toggles.fanIn,
+    delivery: condition.toggles.delivery,
+    taskId: task.id,
+    family: task.family,
+    seed,
+    model: opts.modelName,
+    digest: snapshotDigest(finalSnapshot),
+    runStatus: finalSnapshot.status,
+    quality: quality.value,
+    qualityDetail: quality.detail,
+    committedTokens: finalSnapshot.budget.committedTokens,
+    limitTokens: finalSnapshot.budget.limitTokens,
+    latencyMs,
+    nodeCount: finalSnapshot.nodes.length,
+    edgeCount: finalSnapshot.edges.length,
+    maxDepth: maxDepthOf(finalSnapshot),
+    failureCount,
+    proposalCount,
+    rejectedCount,
+    deliveredCount,
+    skipUtilization: skipEdges.length === 0 ? null : deliveredCount / skipEdges.length,
+    modelCalls: transcript.entries.length,
+  });
+
+  return { record, snapshot: finalSnapshot, transcript, contextCounts };
+}
+
+/**
+ * fan-in 接线:把先派生的 worker 连到最后派生的那个子节点(视作 reducer)。
+ *
+ * 选"最后派生"而非按角色名匹配,是为了不依赖模型给出特定 role 字符串——模型
+ * 不配合时整个 fan-in 臂就会静默退化成无依赖边,那会是一个难以察觉的失效。
+ * 按物化顺序取则总能成立(只要子节点数 ≥2)。
+ */
+async function wireFanIn(
+  controller: GraphController,
+  runId: string,
+  snapshot: RunSnapshot,
+): Promise<RunSnapshot> {
+  const children = snapshot.nodes
+    .filter((n) => n.parentNodeId !== null && n.state === NodeState.READY)
+    .sort((a, b) => (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0));
+  if (children.length < 2) {
+    return snapshot;
+  }
+  const reducer = children[children.length - 1]!;
+  let current = snapshot;
+  for (const worker of children.slice(0, -1)) {
+    current = await controller.addDependency(runId, worker.nodeId, reducer.nodeId);
+  }
+  return current;
+}
+
+/** 取 root 节点的归档输出(root 负责综合最终答案)。 */
+async function extractRootOutput(
+  controller: GraphController,
+  runId: string,
+): Promise<string | null> {
+  // 控制器不暴露 archivedResults;经 v2 checkpoint 取回 root 的归档结果。
+  const json = await controller.checkpointResumable(runId);
+  const parsed = JSON.parse(json) as {
+    resumable?: { archivedResults?: { nodeId: string; result?: { output?: unknown } }[] };
+  };
+  const archived = parsed.resumable?.archivedResults ?? [];
+  for (const entry of archived) {
+    if (entry.nodeId === "root") {
+      const output = entry.result?.output;
+      return typeof output === "string" ? output : null;
+    }
+  }
+  return null;
+}
+
+/** 序列化为一行 JSONL。 */
+export function toJsonLine(record: RunRecord): string {
+  return JSON.stringify(record);
+}
+
+void agentSpecToDict;
