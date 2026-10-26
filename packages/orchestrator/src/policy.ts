@@ -21,6 +21,12 @@ export interface ControllerPolicy {
   readonly maxTextLength: number;
   readonly maxIdLength: number;
   readonly maxMessageTtlSeconds: number;
+  /** 单个节点一次 frontier-freeze 可注入的投递 token 上限(估算口径见 delivery.ts)。 */
+  readonly contextInjectionTokenBudget: number;
+  /** 单个节点一次 frontier-freeze 最多接收的投递条数。 */
+  readonly maxDeliveriesPerNode: number;
+  /** 打分后进入背包的候选条数上限(Top-K)。 */
+  readonly contextTopK: number;
 }
 
 const DEFAULTS: ControllerPolicy = {
@@ -36,6 +42,9 @@ const DEFAULTS: ControllerPolicy = {
   maxTextLength: 16000,
   maxIdLength: 256,
   maxMessageTtlSeconds: 86400,
+  contextInjectionTokenBudget: 2000,
+  maxDeliveriesPerNode: 8,
+  contextTopK: 16,
 };
 
 export function createControllerPolicy(
@@ -71,5 +80,16 @@ export function createControllerPolicy(
       "maxMessageTtlSeconds",
       { min: 1 },
     ),
+    contextInjectionTokenBudget: assertBoundedInt(
+      merged.contextInjectionTokenBudget,
+      "contextInjectionTokenBudget",
+      { min: 1 },
+    ),
+    maxDeliveriesPerNode: assertBoundedInt(
+      merged.maxDeliveriesPerNode,
+      "maxDeliveriesPerNode",
+      { min: 1 },
+    ),
+    contextTopK: assertBoundedInt(merged.contextTopK, "contextTopK", { min: 1 }),
   });
 }

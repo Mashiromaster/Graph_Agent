@@ -438,13 +438,34 @@ export function validateSkip(
     return fail("MALFORMED_PROPOSAL", "skip proposal field validation failed");
   }
 
-  if (p.requesterNodeId !== requester.nodeId) {
-    return fail("SOURCE_MISMATCH", "requesterNodeId does not match requester");
+  // 允许两种 requester:
+  //   (a) 提案节点自身——历史语义;
+  //   (b) 提案节点在同一份结果里刚派生的**子节点**——代其请求跨代跳连。
+  //
+  // 为什么必须有 (b):提案节点按定义已经跑完,而节点只执行一次、永不重入,因此
+  // 指向自身的 skip 边结构上必然惰性,跨代跳连永远不可能生效。父节点代子节点
+  // 请求才使 skip_context 真正可用。安全性来自 ingestLocked 的固定处理顺序
+  // (spawn → message → skip):轮到 skip 时该子节点已物化。
+  const requesterNode = state.nodes.get(p.requesterNodeId);
+  const isSelf = p.requesterNodeId === requester.nodeId;
+  const isOwnChild = requesterNode?.parentNodeId === requester.nodeId;
+  if (!isSelf && !isOwnChild) {
+    return fail(
+      "SOURCE_MISMATCH",
+      "requesterNodeId is neither the proposing node nor its child",
+    );
+  }
+  if (requesterNode === undefined) {
+    return fail("TARGET_NOT_FOUND", "requester node not found");
   }
   if (!state.nodes.has(p.sourceNodeId)) {
     return fail("TARGET_NOT_FOUND", "source node not found");
   }
-  if (!isAncestor(state, p.sourceNodeId, requester.nodeId)) {
+  if (p.sourceNodeId === p.requesterNodeId) {
+    return fail("SELF_EDGE", "skip source equals requester");
+  }
+  // 祖先关系针对**实际接收方**判定,而非提案者。
+  if (!isAncestor(state, p.sourceNodeId, p.requesterNodeId)) {
     return fail("POLICY_DENIED", "source is not an ancestor of requester");
   }
   if (state.edges.length >= policy.maxEdges) {

@@ -21,7 +21,12 @@
  * 一律经 graph-models 工厂替换整条记录,绝不原地改字段。
  */
 
-import { NodeStatus, type AgentInput, type AgentResult } from "@graph-agent/core";
+import {
+  NodeStatus,
+  createAgentInput,
+  type AgentInput,
+  type AgentResult,
+} from "@graph-agent/core";
 import type {
   MessageProposal,
   SkipContextProposal,
@@ -43,6 +48,12 @@ import type { MutableRunState } from "./mutable-state.js";
 import type { ControllerEventType } from "./controller-events.js";
 import { validateResult } from "./validation.js";
 import { applyMessage, applySkip, applySpawn } from "./mutations.js";
+import {
+  archivedOutputOf,
+  assembleContext,
+  trustOf,
+  type Delivery,
+} from "./delivery.js";
 import type { NodeFactory } from "./runner.js";
 
 /** 控制器供给的事件追加回调,保持调度器与事件日志存储解耦。 */
@@ -99,6 +110,87 @@ function dependsOnSources(state: MutableRunState, nodeId: string): string[] {
     }
   }
   return sources;
+}
+
+/**
+ * 把三类投递注入节点 input,在它开跑之前、且仍持锁时执行。
+ *
+ * 三个来源:
+ *   (i)   pendingDeliveries —— applyMessage/applySkip 缓冲的明文;
+ *   (ii)  depends_on 源的**实际产出** —— 这把依赖边从纯屏障变成数据流边,
+ *         从而零调度器重构地提供真实 fan-in(父节点派生 N 个 worker 外加一个
+ *         带 depends_on 边的 reducer 子节点)。在此之前完全没有子→父信息流:
+ *         子节点结果只进 archivedResults 供 checkpoint,父节点早已跑完。
+ *   (iii) 指向本节点的 skip_context 边 —— 祖先产出按边 weight(= contextGate)门控。
+ *
+ * 为什么 (iii) 要在此处再扫一遍边,而不只依赖 applySkip 的缓冲:applySkip 执行时
+ * 祖先可能尚未归档产出(例如 resume 后、或祖先与接收方同一 superstep 结算),
+ * 此处按边重新取一次,使跳连在产出可得时仍能生效。两条路径产生同一 edgeId,
+ * 由 dedupe 去重。
+ *
+ * 写回 `state.inputs` 而非只传给 claim:v2 resumable 切片序列化 inputs,故
+ * 投递效果随 checkpoint 一起持久化,resume 后节点看到的上下文与中断前一致。
+ * 缓冲随即清空——投递是一次性的,不应在后续 superstep 重复注入。
+ */
+function injectDeliveries(state: MutableRunState, nodeId: string): AgentInput {
+  const base = state.inputs.get(nodeId) as AgentInput;
+  const candidates: Delivery[] = [...(state.pendingDeliveries.get(nodeId) ?? [])];
+
+  for (const edge of state.edges) {
+    if (edge.targetNodeId !== nodeId) {
+      continue;
+    }
+    if (edge.type !== EdgeType.DEPENDS_ON && edge.type !== EdgeType.SKIP_CONTEXT) {
+      continue;
+    }
+    const output = archivedOutputOf(state, edge.sourceNodeId);
+    if (output === null) {
+      continue;
+    }
+    const source = state.nodes.get(edge.sourceNodeId);
+    candidates.push({
+      sourceNodeId: edge.sourceNodeId,
+      content: output,
+      priority: source?.priority ?? 0.5,
+      trust: trustOf(state, edge.sourceNodeId),
+      kind: edge.type,
+      edgeId: edge.edgeId,
+      // depends_on 边的 weight 默认 0.5,但依赖产出是**刚性数据流**而非可选证据,
+      // 不应被默认门控衰减;故 depends_on 固定 gate=1,只有 skip 用边上的 weight。
+      gate: edge.type === EdgeType.DEPENDS_ON ? 1 : edge.weight,
+      // 声明式数据流不受相关性否决,见 delivery.Delivery.mandatory。
+      mandatory: edge.type === EdgeType.DEPENDS_ON,
+    });
+  }
+
+  state.pendingDeliveries.delete(nodeId);
+  if (candidates.length === 0) {
+    return base;
+  }
+
+  // 同一 edgeId 可能从缓冲与边扫描各来一次;保留先出现的那条。
+  const seen = new Set<string>();
+  const deduped: Delivery[] = [];
+  for (const d of candidates) {
+    if (seen.has(d.edgeId)) {
+      continue;
+    }
+    seen.add(d.edgeId);
+    deduped.push(d);
+  }
+
+  const packets = assembleContext(deduped, base.task, state.policy);
+  if (packets.length === 0) {
+    return base;
+  }
+  const merged = createAgentInput({
+    task: base.task,
+    context: [...base.context, ...packets],
+    sessionId: base.sessionId,
+    metadata: { ...base.metadata },
+  });
+  state.inputs.set(nodeId, merged);
+  return merged;
 }
 
 // ── freezeFrontierAndClaim ───────────────────────────────────────────────────
@@ -164,11 +256,14 @@ export function freezeFrontierAndClaim(state: MutableRunState): Claim[] {
     const runningNode = withNodeState(node, NodeState.RUNNING);
     state.nodes.set(node.nodeId, runningNode);
 
+    // 在节点真正开跑之前把投递注入其 input(详见 injectDeliveries)。
+    const input = injectDeliveries(state, node.nodeId);
+
     claims.push({
       node: runningNode,
       execution,
       runner: state.runners.get(node.nodeId),
-      input: state.inputs.get(node.nodeId) as AgentInput,
+      input,
     });
   }
 

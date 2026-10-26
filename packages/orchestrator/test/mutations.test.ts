@@ -272,6 +272,71 @@ describe("applyMessage", () => {
     expect(decision.state).toBe(DecisionState.REJECTED);
     expect(decision.code).toBe("SELF_EDGE");
   });
+
+  it("buffers the plaintext for the target while the edge keeps only a hash", () => {
+    // 这是 claim (c) 的基础:在此之前明文被丢弃,消息边只剩 sha256,
+    // 「通讯」在可观测意义上是 no-op。
+    const { state, root } = twoNodeState();
+    const proposal = createMessageProposal({
+      proposalId: "m4",
+      sourceNodeId: "root",
+      targetNodeId: "other",
+      content: "the shared finding",
+      priority: 0.75,
+      ttlSeconds: 60,
+    });
+    const decision = applyMessage(state, root, proposal, RUN_ID);
+    expect(decision.state).toBe(DecisionState.ACCEPTED);
+
+    const buffered = state.pendingDeliveries.get("other");
+    expect(buffered).toHaveLength(1);
+    expect(buffered![0]!.content).toBe("the shared finding");
+    expect(buffered![0]!.sourceNodeId).toBe("root");
+    expect(buffered![0]!.priority).toBe(0.75);
+    expect(buffered![0]!.kind).toBe(EdgeType.MESSAGE);
+    expect(buffered![0]!.mandatory).toBe(false);
+
+    // 边上仍只有摘要,审计口径不变(明文不进快照)。
+    const edge = state.edges.find((e) => e.edgeId === decision.materializedId)!;
+    expect(edge.contentHash).not.toBeNull();
+    expect(JSON.stringify(edge)).not.toContain("the shared finding");
+  });
+
+  it("rejects a message to a node that already ran with TARGET_ALREADY_EXECUTED", () => {
+    // 节点只执行一次且永不重入,故向非 READY 节点投递不可能影响任何输出。
+    // 此前这类提案被静默接受并留一条惰性边,使无效通讯看起来成功。
+    for (const state_ of [NodeState.RUNNING, NodeState.SUCCEEDED, NodeState.FAILED]) {
+      const { state, root, other } = twoNodeState();
+      state.nodes.set(
+        other.nodeId,
+        createNodeRecord({
+          nodeId: other.nodeId,
+          name: other.name,
+          role: other.role,
+          parentNodeId: other.parentNodeId,
+          generation: other.generation,
+          priority: other.priority,
+          state: state_,
+          allowedToolNames: other.allowedToolNames,
+          allocationTokens: other.allocationTokens,
+        }),
+      );
+      const decision = applyMessage(
+        state,
+        root,
+        createMessageProposal({
+          proposalId: "m5",
+          sourceNodeId: "root",
+          targetNodeId: "other",
+          content: "too late",
+        }),
+        RUN_ID,
+      );
+      expect(decision.state).toBe(DecisionState.REJECTED);
+      expect(decision.code).toBe("TARGET_ALREADY_EXECUTED");
+      expect(state.pendingDeliveries.get("other")).toBeUndefined();
+    }
+  });
 });
 
 describe("applySkip", () => {

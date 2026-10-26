@@ -27,6 +27,8 @@ import type {
   RunSnapshot,
 } from "./graph-models.js";
 import type { ControllerPolicy } from "./policy.js";
+import type { Delivery } from "./delivery.js";
+import { createTrustTable, type TrustTable } from "./trust.js";
 import type { AgentResult } from "@graph-agent/core";
 
 /**
@@ -54,6 +56,24 @@ export interface MutableRunState {
    * snapshotOf 不投影它,SP1-4 的一切既有行为不受影响。
    */
   archivedResults: Map<string, AgentResult>;
+  /**
+   * 待投递明文缓冲,键为目标 nodeId。纯增字段,**snapshotOf 不投影它**。
+   *
+   * 这一点是设计的要害:投递内容若进入快照,state/topology 摘要即改变,审计链
+   * 「仅存摘要、不存明文」的性质被破坏,且全部 checkpoint/replay 测试失效。
+   * 因此明文只驻留在此缓冲中,投递的**效果**写入 `inputs`(已被 v2 resumable
+   * 切片序列化),故 resume 自动可用。比照上方 archivedResults 的先例。
+   */
+  pendingDeliveries: Map<string, Delivery[]>;
+  /**
+   * 按角色键的跨运行可信度表,spawn 时据此设定子节点 trustScore。
+   *
+   * 只读不写:本次运行**不**在运行内更新它。更新发生在运行之间(由评测侧按
+   * reward 批量 EMA 后持久化),原因见 trust.ts 文件头——节点只执行一次且永不
+   * 重入,运行内的节点级 trust 学习由构造不可能。snapshotOf 不投影它:它是
+   * 跨运行的先验输入,不属于本次运行的状态。
+   */
+  trustTable: TrustTable;
   nodeReservations: Map<string, number>;
   committedTokens: number;
   reservedTokens: number;
@@ -65,11 +85,13 @@ export interface MutableRunState {
 export function createMutableRunState(
   runId: string,
   policy: ControllerPolicy,
+  trustTable: TrustTable = createTrustTable(),
 ): MutableRunState {
   return {
     runId,
     status: RunStatus.RUNNING,
     policy,
+    trustTable,
     nodes: new Map(),
     specs: new Map(),
     runners: new Map(),
@@ -79,6 +101,7 @@ export function createMutableRunState(
     decisions: [],
     processedResults: new Map(),
     archivedResults: new Map(),
+    pendingDeliveries: new Map(),
     nodeReservations: new Map(),
     committedTokens: 0,
     reservedTokens: 0,

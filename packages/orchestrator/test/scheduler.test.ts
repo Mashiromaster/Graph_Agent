@@ -359,9 +359,29 @@ describe("ingestLocked", () => {
     // ancestor chain for skip: gp -> parent(running) ; source=gp is ancestor of parent
     const gp = makeNode({ nodeId: "gp", parentNodeId: null, generation: 0, state: NodeState.SUCCEEDED });
     state.nodes.set(gp.nodeId, gp);
-    // a message target node
+    // A message target node. It must still be READY *after* the frontier freeze
+    // to be able to receive context, so it gets a reservation and is excluded
+    // from this superstep's frontier by a depends_on edge on the running node.
+    // (Without a reservation freezeFrontierAndClaim would mark it FAILED, and a
+    // message to a non-READY node is now rejected as TARGET_ALREADY_EXECUTED.)
     const tgt = makeNode({ nodeId: "tgt", parentNodeId: "gp", generation: 1, state: NodeState.READY });
     state.nodes.set(tgt.nodeId, tgt);
+    state.runners.set(tgt.nodeId, stubRunner);
+    state.inputs.set(
+      tgt.nodeId,
+      createAgentInput({ task: "t", context: [], sessionId: tgt.nodeId }),
+    );
+    state.nodeReservations.set(tgt.nodeId, 100);
+    state.reservedTokens += 100;
+    // Gate tgt behind the running node so it is not claimed in this superstep.
+    state.edges.push(
+      createEdgeRecord({
+        edgeId: "e-dep-tgt",
+        sourceNodeId: "parent",
+        targetNodeId: "tgt",
+        type: EdgeType.DEPENDS_ON,
+      }),
+    );
 
     const runningNode = makeNode({
       nodeId: "parent",

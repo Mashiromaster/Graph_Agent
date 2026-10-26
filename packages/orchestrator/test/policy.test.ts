@@ -17,6 +17,9 @@ describe("createControllerPolicy", () => {
       maxTextLength: 16000,
       maxIdLength: 256,
       maxMessageTtlSeconds: 86400,
+      contextInjectionTokenBudget: 2000,
+      maxDeliveriesPerNode: 8,
+      contextTopK: 16,
     });
   });
 
