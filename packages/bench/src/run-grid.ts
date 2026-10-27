@@ -74,15 +74,26 @@ export async function main(opts: GridOptions = {}): Promise<void> {
 
   // 成本与时长预估:跑前报告,不让规模靠行数事后推断。
   const cost = estimateCost(cells, 21000);
-  const callsPerCell = 3.5; // 实测均值:单节点 1 次,派生臂约 5 次
-  const hours = (cells.length * callsPerCell * 21) / 3600;
+  // 按格类型分别估时,而非用一个平均 calls/cell。
+  //
+  // 实测:不派生格(A1)均值 96s,派生格均值 313s——相差 3.3 倍。用单一均值会
+  // 把总时长低报到 1/4(首次 dry-run 报 3.1h,实际投影 11.7h)。低报的危害不只是
+  // 不准:它会让人按错误的时间预算决定种子数,而种子数直接决定统计功效。
+  const spawnCells = cells.filter((c) => c.condition.arm.spawn).length;
+  const soloCells = cells.length - spawnCells;
+  const SOLO_SECONDS = 96;
+  const SPAWN_SECONDS = 313;
+  const hours = (soloCells * SOLO_SECONDS + spawnCells * SPAWN_SECONDS) / 3600;
   console.log("=== grid plan ===");
   console.log(`models : ${models.map((m) => `${m.name}(${m.model})`).join(", ")}`);
   console.log(`tasks  : ${tasks.map((t) => t.id).join(", ")}`);
   console.log(`seeds  : [${seeds.join(",")}] (confirmatory [${confirmatorySeeds.join(",")}])`);
-  console.log(`cells  : ${cells.length}`);
+  console.log(`cells  : ${cells.length} (${soloCells} solo, ${spawnCells} spawning)`);
   console.log(`tokens : ~${(cost.totalTokens / 1e6).toFixed(2)}M`);
-  console.log(`wall   : ~${hours.toFixed(1)} h serial (endpoint rejects concurrency)`);
+  console.log(
+    `wall   : ~${hours.toFixed(1)} h serial ` +
+      `(solo ${SOLO_SECONDS}s, spawning ${SPAWN_SECONDS}s; endpoint rejects concurrency)`,
+  );
   for (const [name, tok] of Object.entries(cost.byModel)) {
     console.log(`  ${name}: ~${(tok / 1e6).toFixed(2)}M tokens`);
   }
