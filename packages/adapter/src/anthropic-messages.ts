@@ -41,6 +41,7 @@ import { createModelResponse, createToolCall } from "./model-types.js";
 import type { ModelAdapter } from "./model.js";
 import { FetchJSONTransport, InvalidModelResponse } from "./transport.js";
 import type { JSONTransport } from "./transport.js";
+import { RetryingTransport, type RetryOptions } from "./retrying-transport.js";
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -89,6 +90,13 @@ export interface AnthropicMessagesOptions {
   readonly timeoutSeconds?: number;
   readonly temperature?: number;
   readonly transport?: JSONTransport;
+  /**
+   * 重试选项。默认开启(4 次尝试、2s 起指数退避):实测该端点在持续负载下
+   * 间歇返回 HTTP 503,不重试会把端点可用性写进实验结论。传 `null` 可关闭。
+   */
+  readonly retry?: RetryOptions | null;
+  /** 重试时的观测回调,透传给 RetryingTransport。 */
+  readonly onRetry?: RetryOptions["onRetry"];
 }
 
 export class AnthropicMessagesModel implements ModelAdapter {
@@ -117,7 +125,16 @@ export class AnthropicMessagesModel implements ModelAdapter {
     this.maxOutputTokens = assertFinitePositive(opts.maxOutputTokens, "maxOutputTokens");
     this.timeoutSeconds = assertFinitePositive(opts.timeoutSeconds ?? 120, "timeoutSeconds");
     this.temperature = opts.temperature;
-    this.transport = opts.transport ?? new FetchJSONTransport();
+    const base = opts.transport ?? new FetchJSONTransport();
+    // 默认包一层重试:端点间歇 503,而一次 503 会让整格质量记为 0。
+    // 显式传 retry: null 可关闭(测试里用 fake transport 时不需要退避等待)。
+    this.transport =
+      opts.retry === null
+        ? base
+        : new RetryingTransport(base, {
+            ...opts.retry,
+            ...(opts.onRetry !== undefined ? { onRetry: opts.onRetry } : {}),
+          });
   }
 
   /** 隐藏凭据,防止 repr/日志泄漏(与 OpenAICompatibleModel 一致)。 */
@@ -209,9 +226,22 @@ export class AnthropicMessagesModel implements ModelAdapter {
         continue;
       }
 
-      // system 角色在 Anthropic 里是顶层参数;历史中若出现则并为 user 文本,
-      // 以免整条消息被静默丢弃。
-      const role = message.role === "system" ? "user" : message.role;
+      // Anthropic 只接受 user / assistant / system 三种 role。核心协议另有
+      // `context` 角色(承载 spawn/depends_on/skip 投递的上下文包),直接透传会
+      // 让端点返回
+      //   400 invalid_request_error: messages: Unexpected role "context"
+      // ——于是**每个收到投递的子节点都会失败**,而 root 因为没有入边投递照常
+      // 成功。症状是 nodes=4 / failureCount=3,看起来像"多 agent 不可靠",
+      // 实则是上下文投递与该方言的 role 集合不兼容。
+      //
+      // 映射为 user:上下文包已由 AgentNode 渲染成带 "Untrusted context from
+      // node X (edge=…, trust=…)" 前缀的文本,证据与指令的区分靠这段前缀而非
+      // role 字段,故降级为 user 不削弱指令隔离。system 同理并入 user——
+      // Anthropic 的 system 是顶层参数,历史里出现的 system 消息若丢弃会损失信息。
+      const role =
+        message.role === "system" || message.role === "context"
+          ? "user"
+          : message.role;
       if (message.content !== null && message.content.length > 0) {
         out.push({ role, content: message.content });
       }
@@ -276,7 +306,22 @@ export class AnthropicMessagesModel implements ModelAdapter {
 
     const usage = isObject(raw.usage) ? raw.usage : {};
     const inputTokens = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
-    const outputTokens = typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+    const reportedOutput =
+      typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+
+    // 该端点的 output_tokens **不可信**:实测出现过返回 7452 字符正文却报
+    // output_tokens=4 的情况(同一 prompt 直连时报 2059,正常)。原因未知,
+    // 可能是代理层的缓存/重试路径没有透传真实用量。
+    //
+    // 为什么必须兜底而不能照收:预算 ledger 依赖 usage 决定提交多少、还剩多少。
+    // 若 usage 被严重低报,一次运行会在账面上"几乎没花钱",于是预算上限形同
+    // 失效——而"预算对等由构造保证"正是本文的核心声明之一。宁可高估也不能漏记。
+    //
+    // 兜底口径:取「报告值」与「按 4 字符/token 估算的正文长度」中的较大者。
+    // 该估算与 delivery.estimateTokens 同口径,系统性偏差对所有 arm 一致。
+    const textChars = texts.reduce((sum, text) => sum + text.length, 0);
+    const estimatedOutput = Math.ceil(textChars / 4);
+    const outputTokens = Math.max(reportedOutput, estimatedOutput);
 
     return createModelResponse({
       // 无文本块时返回 null:AgentNode 据此判断"还在调工具"而非"已给出终答"。

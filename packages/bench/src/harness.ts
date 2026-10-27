@@ -27,12 +27,18 @@ import {
   EdgeType,
   GraphController,
   NodeState,
+  RunStatus,
   snapshotDigest,
   type NodeFactory,
   type RunSnapshot,
   type TrustTable,
 } from "@graph-agent/orchestrator";
-import { AgentNode, agentSpecToDict, type AgentSpec } from "@graph-agent/node";
+import {
+  AgentNode,
+  agentSpecToDict,
+  createAgentSpec,
+  type AgentSpec,
+} from "@graph-agent/node";
 import { policyFor, rootSpecFor, type Condition } from "./arms.js";
 import { withSeedMetadata } from "./models.js";
 import { conditionKey } from "./arms.js";
@@ -98,6 +104,22 @@ export interface HarnessResult {
   readonly contextCounts: ReadonlyMap<string, number>;
 }
 
+/**
+ * 子节点的 system 指令。
+ *
+ * 编排层不携带 instructions(见工厂里的说明),故由实验侧按角色生成。内容刻意
+ * 简短且与臂无关:臂的差异应当只体现在 root 的编排能力与图机制上,子节点的
+ * 提示词若随臂变化,就会把提示词工程的效果混进拓扑效应。
+ */
+function childInstructions(role: string): string {
+  return [
+    `You are a ${role} agent handling one part of a larger task.`,
+    "Address your assigned objective thoroughly and precisely.",
+    "Use standard terminology for every mechanism you name.",
+    "Return only your own findings; another agent will synthesize them.",
+  ].join(" ");
+}
+
 /** 从 spawn 边推算最大深度(generation 已在节点上,取最大值即可)。 */
 function maxDepthOf(snapshot: RunSnapshot): number {
   let depth = 0;
@@ -129,8 +151,32 @@ export async function runOne(opts: HarnessOptions): Promise<HarnessResult> {
       // withSeedMetadata 无效——那层在 recorder 内侧,recorder 已按未标记的
       // 请求算过 requestKey。结果是不同种子的同题请求共用一个键,transcript
       // 把 N 个种子的响应堆在一起,重放时种子与响应失去对应关系。
+      // 编排层物化子节点时构造的 spec 是 `{identity, budget, role}`——它刻意不
+      // 依赖 @graph-agent/node,因此**不带 instructions 与 policy**。而 AgentNode
+      // 要求 instructions 为非空串,适配器也直接读 `request.instructions`。
+      // 不补这两个字段,每个子节点都会在首次模型调用时抛
+      // `TypeError: Cannot read properties of undefined (reading 'trim')`,
+      // 被转为结构化 FAILED——表现为 nodes=4 / failureCount=3,看起来像
+      // "多 agent 不可靠",实则是跨层 spec 形状不完整。
+      const nodeSpec =
+        nodeId === "root"
+          ? (spec as AgentSpec)
+          : createAgentSpec({
+              identity: spec.identity,
+              budget: spec.budget,
+              role,
+              instructions: childInstructions(role),
+              policy: {
+                // 子节点不再派生:本实验只研究两代图,且让子节点继续派生会使
+                // 拓扑深度随模型意愿漂移,破坏臂之间的可比性。
+                maxGeneration: 0,
+                maxChildren: 0,
+                allowDirectMessages: false,
+                allowSkipContext: false,
+              },
+            });
       const inner = new AgentNode({
-        spec: spec as AgentSpec,
+        spec: nodeSpec,
         model: withSeedMetadata(recorder, seed),
         clock: () => 0,
       });
@@ -175,9 +221,21 @@ export async function runOne(opts: HarnessOptions): Promise<HarnessResult> {
   const finalSnapshot = await controller.runUntilIdle(runId);
   const latencyMs = wallClock() - startedAt;
 
-  // 质量分:取 root 的输出(root 负责综合)。
-  const rootOutput = await extractRootOutput(controller, runId);
-  const quality = await task.scorer(rootOutput);
+  // 只给**整个运行收敛成功**的结果打分。
+  //
+  // 仅检查 root 不够:实测出现过 root SUCCEEDED 但 3 个子节点全部
+  // token_budget_exceeded 的运行,记录成 `status=failed` 配 `q=0.875`——因为
+  // root 在派生前就已写出完整简报,评分器照样给高分。那条记录会让"子节点全死"
+  // 在质量轴上变成"还不错",既掩盖了配置错误,也会把失败运行计入均值。
+  //
+  // 以 runStatus 为准:它由 settleRun 按节点终态收敛,任一节点 FAILED/BLOCKED
+  // 即为 failed。这与"预算对等 + fail-closed"的整体立场一致——部分失败的运行
+  // 不该贡献质量数据。
+  const runSucceeded = finalSnapshot.status === RunStatus.SUCCEEDED;
+  const rootOutput = runSucceeded ? await extractRootOutput(controller, runId) : null;
+  const quality = runSucceeded
+    ? await task.scorer(rootOutput)
+    : { value: 0, detail: `run ${finalSnapshot.status}; output not scored` };
 
   const transcript: Transcript = Object.freeze({
     entries: Object.freeze(recorders.flatMap((r) => [...r.transcript().entries])),

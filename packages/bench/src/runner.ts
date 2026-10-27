@@ -119,8 +119,10 @@ export interface RunnerSummary {
   readonly records: readonly RunRecord[];
 }
 
-const DEFAULT_RECORDS_PATH = "results/records.jsonl";
-const DEFAULT_TRANSCRIPT_DIR = "results/transcripts";
+// 路径相对于 sink 的根(FileStorage 把一切解析到 rootDir 之下),故这里**不带**
+// `results/` 前缀——否则传入 rootDir: "results" 会拼出 results/results/。
+const DEFAULT_RECORDS_PATH = "records.jsonl";
+const DEFAULT_TRANSCRIPT_DIR = "transcripts";
 
 /**
  * 顺序执行全部格子。

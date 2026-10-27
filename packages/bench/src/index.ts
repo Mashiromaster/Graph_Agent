@@ -84,3 +84,5 @@ export type {
   ParetoPoint,
   RoleContribution,
 } from "./metrics.js";
+export { main as runFullGrid } from "./run-grid.js";
+export type { GridOptions } from "./run-grid.js";

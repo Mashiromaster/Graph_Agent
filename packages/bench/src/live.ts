@@ -52,12 +52,17 @@ export function liveModelMatrix(
       baseUrl,
       apiKeyEnv: "ANTHROPIC_AUTH_TOKEN",
       temperature: 0.7,
-      // 4096 而非 1024:实测该端点的 thinking 块计入 output_tokens
-      // (一次探测里 526/1024 被 thinking 吃掉),1024 下六子问题的技术简报
-      // 必然 `stop_reason: max_tokens` 且文本块为空 → 质量恒为 0。
-      // 那种 0 分与拓扑无关,纯是输出上限太小,会把整组实验的质量轴压成噪声。
-      maxOutputTokens: 4096,
-      timeoutSeconds: 180,
+      // 16384:深度轴任务(8 子问题 × 每项 3 个具名机制)实测需要约 13.6k
+      // output token 才能 `end_turn` 收尾。逐级实测:
+      //   1024 → thinking 吃掉 526,正文为空,q=0
+      //   4096 → max_tokens 截断,q=0.50
+      //   8192 → max_tokens 截断,q=0.375
+      //  16384 → end_turn 正常收尾,q=0.75
+      // 截断导致的低分**与拓扑无关**,纯是输出上限不足。若照原样报告,就会把
+      // 一个输出预算配置错误写成"多 agent 更差"的结论——正是本文开篇批评的
+      // 那类混淆。上限必须给到任务能自然收尾,否则质量轴测的是截断位置。
+      maxOutputTokens: 16384,
+      timeoutSeconds: 600,
       confirmatoryOnly: tier.confirmatoryOnly,
       dialect: "anthropic",
     });

@@ -220,10 +220,10 @@ describe("runGrid", () => {
 
     expect(summary.succeeded).toBe(cells.length);
     expect(summary.failed).toEqual([]);
-    const jsonl = sink.files.get("results/records.jsonl")!;
+    const jsonl = sink.files.get("records.jsonl")!;
     expect(jsonl.trim().split("\n")).toHaveLength(cells.length);
     for (const cell of cells) {
-      expect(sink.files.has(`results/transcripts/${cellKey(cell)}.json`)).toBe(true);
+      expect(sink.files.has(`transcripts/${cellKey(cell)}.json`)).toBe(true);
     }
   });
 
@@ -247,7 +247,7 @@ describe("runGrid", () => {
     expect(second.skipped).toBe(cells.length);
     expect(second.succeeded).toBe(0);
     // JSONL 没有被追加重复行。
-    expect(sink.files.get("results/records.jsonl")!.trim().split("\n")).toHaveLength(
+    expect(sink.files.get("records.jsonl")!.trim().split("\n")).toHaveLength(
       cells.length,
     );
   });
@@ -345,7 +345,7 @@ describe("transcript persistence", () => {
       (c) => c.condition.arm.id === "A1",
     );
     await runGrid({ cells, factoryFor: () => soloFactory(), sink, wallClock: clock() });
-    const json = sink.files.get(`results/transcripts/${cellKey(cells[0]!)}.json`)!;
+    const json = sink.files.get(`transcripts/${cellKey(cells[0]!)}.json`)!;
     const transcript = deserializeTranscript(json);
     expect(transcript.entries.length).toBeGreaterThan(0);
     expect(serializeTranscript(transcript)).toBe(json);
@@ -371,7 +371,7 @@ describe("transcript persistence", () => {
     });
 
     const stored = deserializeTranscript(
-      sink.files.get(`results/transcripts/${cellKey(cells[0]!)}.json`)!,
+      sink.files.get(`transcripts/${cellKey(cells[0]!)}.json`)!,
     );
     const replaySink = memorySink();
     const replayed = await runGrid({

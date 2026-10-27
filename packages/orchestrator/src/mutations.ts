@@ -159,7 +159,29 @@ export function applySpawn(
     parentNodeId: parent.nodeId,
     trustScore: trustForRole(state.trustTable, proposal.role),
   });
-  const budget = createNodeBudget({ maxTotalTokens: allocation });
+  // 子节点继承父节点的 turn/tool/timeout 上限,只有 token 配额按份额切分。
+  //
+  // 此前只传 maxTotalTokens,于是 maxTurns/maxToolCalls/timeoutSeconds 全部回落到
+  // createNodeBudget 的默认值(8 / 16 / **120 秒**)。父节点配 900 秒而子节点只有
+  // 120 秒——在产出耗时 130–180 秒的任务上,子节点必然超时转 FAILED,而父节点成功。
+  // 症状是 nodes=4 / failureCount=3:看起来像"多 agent 不可靠",实则是子节点
+  // 继承了一个与父节点不一致的时限。
+  //
+  // 时限与轮次是**父节点已获批的执行约束**,按份额切分没有语义(半个超时时限
+  // 并不对应半个子任务);只有 token 是可分的资源。故前者继承、后者切分。
+  const parentBudget = (state.specs.get(parent.nodeId) as
+    | { budget?: { maxTurns?: number; maxToolCalls?: number; timeoutSeconds?: number } }
+    | undefined)?.budget;
+  const budget = createNodeBudget({
+    maxTotalTokens: allocation,
+    ...(parentBudget?.maxTurns !== undefined ? { maxTurns: parentBudget.maxTurns } : {}),
+    ...(parentBudget?.maxToolCalls !== undefined
+      ? { maxToolCalls: parentBudget.maxToolCalls }
+      : {}),
+    ...(parentBudget?.timeoutSeconds !== undefined
+      ? { timeoutSeconds: parentBudget.timeoutSeconds }
+      : {}),
+  });
   const spec = { identity, budget, role: proposal.role };
   let runner;
   try {

@@ -38,7 +38,26 @@
 
 import { createTask, score, type Scorer, type TaskInstance } from "../task.js";
 
-/** 一个必答子问题:命中任一 alias 组内的全部词即视为覆盖。 */
+/**
+ * 一个必答子问题:`required` 里的词**全部**出现才算覆盖(大小写无关)。
+ *
+ * ## 难度轴是「每项深度」,不是「项数」
+ *
+ * 这一点由实测定下,值得记录以免后人重走:
+ *
+ * | 设计 | A1 质量 | 是否可判别 |
+ * |---|---|---|
+ * | 6 子问题 × 1 关键词 | 0.972(6 格里 5 格满分) | 否,天花板 |
+ * | 14 子问题 × 1 关键词 | 0.929 | 否,仍接近天花板 |
+ * | 8 子问题 × 3 关键词 | **0.375** | 是,双向都有余量 |
+ *
+ * 加子问题个数没用:模型在单次上下文里轻松铺开十四个概念名。真正的约束是
+ * **每项要给出多个具体机制**——那需要的总深度超出一轮产出,分解才有收益。
+ * 实测在深度轴上 A3 稳定派生 3–4 个子节点,而在广度轴上几乎不派生。
+ *
+ * 这也解释了为什么质量轴的天花板必须先解除再谈样本量:在 A1 恒为 1.00 的设计下,
+ * 任何样本量都测不出差异——不是效应不存在,是量具没有刻度。
+ */
 export interface Subtopic {
   readonly id: string;
   /** 必需词组:全部出现才算覆盖该子问题(大小写无关)。 */
@@ -79,91 +98,114 @@ export function coverageScorer(subtopics: readonly Subtopic[]): Scorer {
   };
 }
 
-/** 数据库内核:六个各需独立分析的子问题(探测中触发派生的结构)。 */
+/**
+ * 深度轴的子问题:每项要求**三个具体机制**同时出现。
+ *
+ * 关键词都选具体机制名(fsync / group commit / LSN),不选领域名(WAL)——
+ * 领域名几乎必然被提及,那样的关键词只能测"有没有点到题",测不出深度。
+ */
 const STORAGE_SUBTOPICS: readonly Subtopic[] = Object.freeze([
-  Object.freeze({ id: "wal", required: ["write-ahead"] }),
-  Object.freeze({ id: "mvcc", required: ["mvcc"] }),
-  Object.freeze({ id: "lsm", required: ["write amplification"] }),
-  Object.freeze({ id: "2pc", required: ["two-phase commit"] }),
-  Object.freeze({ id: "clocks", required: ["vector clock"] }),
-  Object.freeze({ id: "quorum", required: ["quorum"] }),
+  Object.freeze({ id: "wal", required: ["fsync", "group commit", "log sequence number"] }),
+  Object.freeze({ id: "mvcc", required: ["snapshot isolation", "write skew", "tuple version"] }),
+  Object.freeze({ id: "lsm", required: ["compaction", "bloom filter", "write amplification"] }),
+  Object.freeze({ id: "btree", required: ["page split", "fill factor", "clustered index"] }),
+  Object.freeze({ id: "2pc", required: ["prepare", "coordinator failure", "blocking"] }),
+  Object.freeze({ id: "clocks", required: ["lamport", "vector clock", "causal"] }),
+  Object.freeze({ id: "quorum", required: ["r + w", "sloppy quorum", "hinted handoff"] }),
+  Object.freeze({ id: "recovery", required: ["checkpoint", "redo", "undo"] }),
 ]);
 
-/** 分布式系统:同构的第二道题,用于族内配对比较。 */
 const CONSENSUS_SUBTOPICS: readonly Subtopic[] = Object.freeze([
-  Object.freeze({ id: "raft", required: ["raft"] }),
-  Object.freeze({ id: "paxos", required: ["paxos"] }),
-  Object.freeze({ id: "leases", required: ["lease"] }),
-  Object.freeze({ id: "split-brain", required: ["split-brain"] }),
-  Object.freeze({ id: "membership", required: ["membership"] }),
-  Object.freeze({ id: "linearizability", required: ["linearizability"] }),
+  Object.freeze({ id: "raft", required: ["term", "log matching", "commit index"] }),
+  Object.freeze({ id: "paxos", required: ["ballot", "acceptor", "proposal number"] }),
+  Object.freeze({ id: "leases", required: ["lease", "clock skew", "fencing token"] }),
+  Object.freeze({ id: "membership", required: ["joint consensus", "configuration change", "quorum overlap"] }),
+  Object.freeze({ id: "linearizability", required: ["linearizability", "sequential consistency", "real-time order"] }),
+  Object.freeze({ id: "failure", required: ["split-brain", "network partition", "fail-stop"] }),
+  Object.freeze({ id: "broadcast", required: ["atomic broadcast", "total order", "fifo"] }),
+  Object.freeze({ id: "flp", required: ["flp", "asynchronous", "randomization"] }),
 ]);
 
-/** 编译器:第三道题。 */
 const COMPILER_SUBTOPICS: readonly Subtopic[] = Object.freeze([
-  Object.freeze({ id: "ssa", required: ["ssa"] }),
-  Object.freeze({ id: "aliasing", required: ["alias"] }),
-  Object.freeze({ id: "regalloc", required: ["register allocation"] }),
-  Object.freeze({ id: "inlining", required: ["inlin"] }),
-  Object.freeze({ id: "escape", required: ["escape analysis"] }),
-  Object.freeze({ id: "vectorization", required: ["vectoriz"] }),
+  Object.freeze({ id: "ssa", required: ["phi", "dominance frontier", "renaming"] }),
+  Object.freeze({ id: "aliasing", required: ["points-to", "field-sensitive", "may-alias"] }),
+  Object.freeze({ id: "regalloc", required: ["interference graph", "spill", "live range"] }),
+  Object.freeze({ id: "inlining", required: ["call site", "code growth", "cost model"] }),
+  Object.freeze({ id: "escape", required: ["escape analysis", "stack allocation", "scalar replacement"] }),
+  Object.freeze({ id: "vectorization", required: ["dependence", "stride", "unroll"] }),
+  Object.freeze({ id: "scheduling", required: ["list scheduling", "latency", "critical path"] }),
+  Object.freeze({ id: "loops", required: ["induction variable", "loop-invariant", "strength reduction"] }),
 ]);
 
-function briefPrompt(domain: string, areas: readonly string[]): string {
+/**
+ * 深度轴提示词:显式要求每项至少三个具名机制。
+ *
+ * "at least three specific named mechanisms" 这句是难度的来源:它把总需求推到
+ * 单轮产出之上,使分解有真实收益——实测该表述下 A3 稳定派生 3–4 个子节点,
+ * 而广度版提示词几乎不派生。
+ */
+function deepBriefPrompt(domain: string, areas: readonly string[]): string {
   return [
-    `Produce a technical brief on ${domain}, covering six independent areas,`,
-    "each requiring its own substantive analysis:",
+    `Produce a rigorous technical brief on ${domain}.`,
+    "For EACH of the following areas you must discuss at least three specific",
+    "named mechanisms in real depth:",
     areas.map((a, i) => `(${i + 1}) ${a}`).join(", "),
     ".",
-    "Each area needs real depth, not a one-line definition.",
-    "Name each concept explicitly using its standard terminology.",
+    "Use precise standard terminology for every mechanism you name.",
+    "Be exhaustive: a shallow mention of an area does not count as covering it.",
   ].join(" ");
 }
 
 /**
- * 可分解任务族。
+ * 可分解任务族(深度轴)。
  *
- * 三道题同构(六个独立子问题 + 一次汇总),故族内可做逐实例配对比较;
- * 每道题的子问题互不重叠,降低"一段话顺带覆盖多个子问题"的虚假命中。
+ * 三道题同构(八个子问题 × 每项三个机制 + 一次汇总),故族内可做逐实例配对比较;
+ * 子问题互不重叠,降低"一段话顺带覆盖多项"的虚假命中。
  */
 export function decomposableTasks(): TaskInstance[] {
   return [
     createTask({
       id: "brief-storage",
       family: "decomposable-brief",
-      prompt: briefPrompt("database storage and transaction internals", [
-        "write-ahead logging versus shadow paging",
-        "MVCC isolation anomalies",
-        "B+tree versus LSM write amplification",
-        "two-phase commit failure modes",
-        "vector clock versus Lamport ordering",
-        "quorum sizing trade-offs",
+      prompt: deepBriefPrompt("database storage and transaction internals", [
+        "write-ahead logging",
+        "MVCC",
+        "LSM trees",
+        "B+tree maintenance",
+        "two-phase commit",
+        "logical clocks",
+        "quorum systems",
+        "crash recovery",
       ]),
       scorer: coverageScorer(STORAGE_SUBTOPICS),
     }),
     createTask({
       id: "brief-consensus",
       family: "decomposable-brief",
-      prompt: briefPrompt("distributed consensus and coordination", [
-        "Raft leader election",
-        "Paxos proposal numbering",
+      prompt: deepBriefPrompt("distributed consensus and coordination", [
+        "Raft",
+        "Paxos",
         "lease-based coordination",
-        "split-brain prevention",
-        "cluster membership changes",
-        "linearizability versus sequential consistency",
+        "membership changes",
+        "consistency models",
+        "failure modes",
+        "atomic broadcast",
+        "impossibility results",
       ]),
       scorer: coverageScorer(CONSENSUS_SUBTOPICS),
     }),
     createTask({
       id: "brief-compiler",
       family: "decomposable-brief",
-      prompt: briefPrompt("optimizing compiler internals", [
+      prompt: deepBriefPrompt("optimizing compiler internals", [
         "SSA construction",
-        "alias analysis precision",
-        "register allocation under pressure",
-        "inlining cost models",
+        "alias analysis",
+        "register allocation",
+        "inlining",
         "escape analysis",
-        "loop vectorization legality",
+        "loop vectorization",
+        "instruction scheduling",
+        "loop optimizations",
       ]),
       scorer: coverageScorer(COMPILER_SUBTOPICS),
     }),

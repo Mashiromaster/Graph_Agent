@@ -38,7 +38,7 @@ import { MESSAGE_TOOL, SKIP_CONTEXT_TOOL, SPAWN_TOOL } from "@graph-agent/node";
  * 写成「多 agent 更差」的结论——正是本文开篇批评的那类混淆。预算对等要求的是
  * 各臂上限相同,不是上限小到让复杂臂做不完工作。
  */
-export const SHARED_TOKEN_BUDGET = 80000;
+export const SHARED_TOKEN_BUDGET = 160000;
 
 /** 臂标识。 */
 export type ArmId = "A1" | "A2" | "A3" | "A4" | "A5";
@@ -170,6 +170,12 @@ export function policyFor(condition: Condition): ControllerPolicy {
     maxChildrenPerNode: 3,
     maxTotalTokens: SHARED_TOKEN_BUDGET,
     maxConcurrency: 4,
+    // 深度轴任务的单节点产出实测约 26k 字符,远超默认的 16000。超限会让
+    // validateResult 返回 MALFORMED_RESULT → fail-closed 提交整笔预留、节点
+    // 置 FAILED,而评分器拿到的仍是那段被图判为无效的文本——于是 JSONL 里
+    // 出现 q=0.875 配 status=failed 的自相矛盾行。
+    // 上限必须容纳任务的正常产出,否则测的是"有没有超长",不是拓扑。
+    maxTextLength: 64000,
     contextInjectionTokenBudget: toggles.delivery ? 2000 : 1,
     maxDeliveriesPerNode: 8,
     contextTopK: 16,
@@ -229,11 +235,26 @@ export function rootSpecFor(condition: Condition, nodeId = "root"): AgentSpec {
       maxTurns: arm.spawn ? 6 : 4,
       // maxToolCalls 需 ≥ maxChildren,否则模型刚派生完就没有调用额度去汇总。
       maxToolCalls: arm.spawn ? 8 : 2,
-      // root 取全局上限的一半,给子节点留出空间;A1 可用满额。两者的**全局**
-      // 上限相同(policyFor 里的 maxTotalTokens),预算对等由此成立;root 的
-      // 节点内上限只是把份额切给自己与子节点,不改变总量。
-      maxTotalTokens: arm.spawn ? Math.floor(SHARED_TOKEN_BUDGET / 2) : SHARED_TOKEN_BUDGET,
-      timeoutSeconds: 180,
+      // 派生臂的 root 取全局上限的 **3/4** 而非 1/2。
+      //
+      // 原因是子节点份额的乘法效应:子节点分到的是
+      // `floor(root.allocationTokens * budgetShare)`,budgetShare 实测 0.2–0.33,
+      // 于是 root=40000 时子节点只有 8000–13200——而深度轴任务里每个子节点要
+      // 产出约 10–14k output token。结果是 3 个子节点全部
+      // `token_budget_exceeded`,而 root 自己成功:记录里出现 nodes=4、
+      // failureCount=3、q=0.625 却 status=failed 的行。
+      //
+      // 那种失败**与拓扑无关**,纯是份额算术把子节点饿死。root 取 3/4 使
+      // budgetShare=0.25 的子节点拿到 15000,刚过可行线。两臂的**全局**上限
+      // 仍相同(policyFor 的 maxTotalTokens),预算对等不受影响。
+      maxTotalTokens: arm.spawn
+        ? Math.floor((SHARED_TOKEN_BUDGET * 3) / 4)
+        : SHARED_TOKEN_BUDGET,
+      // 900s:单节点产出约 10k token 实测耗时 138s,而派生臂的 root 要跑两轮
+      // (派生 + 汇总)并在第二轮读回子节点产出,实测 180s 恰好卡死在上限上
+      // → 超时转为结构化 FAILED、提交整笔预留、q=0。那种 0 分同样与拓扑无关。
+      // 该端点吞吐约 70–80 token/s,长产出本就慢,上限必须留足余量。
+      timeoutSeconds: 900,
     }),
     policy: {
       maxGeneration: arm.spawn ? 2 : 0,

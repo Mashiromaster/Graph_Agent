@@ -80,6 +80,8 @@ function model(transport: JSONTransport, temperature?: number): AnthropicMessage
     maxOutputTokens: 256,
     ...(temperature !== undefined ? { temperature } : {}),
     transport,
+    // fake transport 不需要退避等待;关掉重试使失败断言立即生效。
+    retry: null,
   });
 }
 
@@ -351,6 +353,28 @@ describe("AnthropicMessagesModel multi-turn tool handling", () => {
     const assistant = messages.find((msg) => msg.role === "assistant")!;
     const blocks = assistant.content as Record<string, unknown>[];
     expect(blocks[0]!.type).toBe("text");
+  });
+
+  it("maps the core `context` role to user, which Anthropic accepts", async () => {
+    // 端点只认 user/assistant/system;透传 `context` 会得到
+    // 400 invalid_request_error: Unexpected role "context" —— 于是每个收到
+    // 投递的子节点都会失败,而 root 照常成功(nodes=4 / failureCount=3)。
+    const transport = fakeTransport([textResponse("ok")]);
+    await model(transport).complete(
+      createModelRequest({
+        nodeId: "n1",
+        instructions: "i",
+        messages: [
+          createMessage({ role: "context", content: "Untrusted context from node root" }),
+          createMessage({ role: "user", content: "task" }),
+        ],
+      }),
+    );
+    const messages = transport.calls[0]!.payload.messages as { role: string }[];
+    expect(messages.every((m) => ["user", "assistant"].includes(m.role))).toBe(true);
+    expect(messages.some((m) => m.role === "context")).toBe(false);
+    // 内容不得丢失:投递文本仍须到达模型。
+    expect(JSON.stringify(messages)).toContain("Untrusted context from node root");
   });
 
   it("never sends an empty messages array", async () => {

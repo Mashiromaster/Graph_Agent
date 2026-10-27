@@ -1,0 +1,48 @@
+=== grid plan ===
+models : small(Claude-Fable-5-zl), mid(Claude-Sonnet-5-zl), frontier(Claude-Opus-5-zl)
+tasks  : brief-storage, brief-consensus, brief-compiler
+seeds  : [0,1,2,3,4] (confirmatory [0,1,2,3,4])
+cells  : 255
+tokens : ~5.36M
+wall   : ~5.2 h serial (endpoint rejects concurrency)
+  small: ~2.21M tokens
+  mid: ~2.21M tokens
+  frontier: ~0.94M tokens
+[1/255] A1+fanin+deliv brief-storage s0 small q=0.88 n=1 tok=10991 | eta 676min
+[2/255] A1+fanin+deliv brief-storage s1 small q=0.00 n=1 tok=80000 | eta 339min
+[3/255] A1+fanin+deliv brief-storage s2 small q=0.00 n=1 tok=80000 | eta 231min
+[4/255] A1+fanin+deliv brief-storage s3 small q=0.75 n=1 tok=12840 | eta 360min
+[5/255] A1+fanin+deliv brief-storage s4 small q=0.88 n=1 tok=11184 | eta 421min
+[6/255] A1+fanin+deliv brief-consensus s0 small q=0.75 n=1 tok=9274 | eta 439min
+[7/255] A1+fanin+deliv brief-consensus s1 small q=0.63 n=1 tok=12292 | eta 482min
+[8/255] A1+fanin+deliv brief-consensus s2 small q=0.50 n=1 tok=8507 | eta 482min
+[9/255] A1+fanin+deliv brief-consensus s3 small q=0.75 n=1 tok=9481 | eta 487min
+[10/255] A1+fanin+deliv brief-consensus s4 small q=0.63 n=1 tok=10268 | eta 498min
+[11/255] A1+fanin+deliv brief-compiler s0 small q=0.75 n=1 tok=11472 | eta 516min
+[12/255] A1+fanin+deliv brief-compiler s1 small q=0.75 n=1 tok=11472 | eta 473min
+[13/255] A1+fanin+deliv brief-compiler s2 small q=0.75 n=1 tok=11472 | eta 439min
+[14/255] A1+fanin+deliv brief-compiler s3 small q=0.75 n=1 tok=11472 | eta 409min
+[15/255] A1+fanin+deliv brief-compiler s4 small q=0.75 n=1 tok=11363 | eta 426min
+[16/255] A2+fanin+deliv brief-storage s0 small q=0.63 n=4 tok=37404 | eta 440min
+[17/255] A2+fanin+deliv brief-storage s1 small q=0.63 n=4 tok=37315 | eta 442min
+[18/255] A2+fanin+deliv brief-storage s2 small q=0.00 n=1 tok=40000 | eta 427min
+[19/255] A2+fanin+deliv brief-storage s3 small q=0.00 n=1 tok=40000 | eta 403min
+[20/255] A2+fanin+deliv brief-storage s4 small q=0.00 n=1 tok=40000 | eta 381min
+[21/255] A2+fanin+deliv brief-consensus s0 small q=0.00 n=1 tok=40000 | eta 362min
+[22/255] A2+fanin+deliv brief-consensus s1 small q=0.00 n=1 tok=40000 | eta 344min
+[23/255] A2+fanin+deliv brief-consensus s2 small q=0.00 n=1 tok=40000 | eta 328min
+[24/255] A2+fanin+deliv brief-consensus s3 small q=0.00 n=1 tok=40000 | eta 313min
+[25/255] A2+fanin+deliv brief-consensus s4 small q=0.00 n=1 tok=40000 | eta 299min
+[26/255] A2+fanin+deliv brief-compiler s0 small q=0.00 n=1 tok=40000 | eta 287min
+[27/255] A2+fanin+deliv brief-compiler s1 small q=0.00 n=1 tok=40000 | eta 275min
+[28/255] A2+fanin+deliv brief-compiler s2 small q=0.00 n=1 tok=40000 | eta 264min
+[29/255] A2+fanin+deliv brief-compiler s3 small q=0.00 n=1 tok=40000 | eta 254min
+[30/255] A2+fanin+deliv brief-compiler s4 small q=0.00 n=1 tok=40000 | eta 245min
+[31/255] A3+fanin+deliv brief-storage s0 small q=0.00 n=1 tok=40000 | eta 236min
+[32/255] A3+fanin+deliv brief-storage s1 small q=0.00 n=1 tok=40000 | eta 228min
+[33/255] A3+fanin+deliv brief-storage s2 small q=0.00 n=1 tok=40000 | eta 220min
+[34/255] A3+fanin+deliv brief-storage s3 small q=0.00 n=1 tok=40000 | eta 213min
+[35/255] A3+fanin+deliv brief-storage s4 small q=0.00 n=1 tok=40000 | eta 206min
+[36/255] A3+fanin+deliv brief-consensus s0 small q=0.50 n=1 tok=8701 | eta 218min
+[37/255] A3+fanin+deliv brief-consensus s1 small q=0.63 n=4 tok=36257 | eta 226min
+[38/255] A3+fanin+deliv brief-consensus s2 small q=0.63 n=4 tok=36374 | eta 231min

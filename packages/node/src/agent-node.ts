@@ -66,6 +66,8 @@ export class AgentNode implements NodeRunner {
   private readonly graphToolDefs: readonly ToolDefinition[];
   private readonly memory: SessionMemory | undefined;
   private readonly clock: () => number;
+  /** 可选诊断回调:收到被转为结构化失败的原始异常。仅用于排障。 */
+  private readonly onError: ((error: unknown) => void) | undefined;
 
   constructor(input: {
     spec: AgentSpec;
@@ -73,11 +75,13 @@ export class AgentNode implements NodeRunner {
     tools?: readonly Tool[];
     memory?: SessionMemory;
     clock?: () => number;
+    onError?: (error: unknown) => void;
   }) {
     this.spec = input.spec;
     this.model = input.model;
     this.memory = input.memory;
     this.clock = input.clock ?? (() => 0);
+    this.onError = input.onError;
     this.graphToolDefs = Object.freeze(graphToolDefinitionsFor(input.spec));
 
     const map = new Map<string, Tool>();
@@ -148,6 +152,10 @@ export class AgentNode implements NodeRunner {
           nodeId,
         );
       }
+      // 诊断钩子:默认不暴露原始异常(错误文本可能带模型/端点细节,且
+      // AgentResult 会进事件链与 checkpoint)。实验排障时注入 onError 即可
+      // 在不改变对外契约的前提下看到真实原因。
+      this.onError?.(err);
       return this._failure(
         recorder,
         "execution_error",
