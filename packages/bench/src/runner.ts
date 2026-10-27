@@ -109,6 +109,18 @@ export interface RunnerOptions {
   /** 每格结束后的回调,便于打印进度。 */
   readonly onProgress?: (done: number, total: number, record: RunRecord) => void;
   readonly wallClock?: () => number;
+  /**
+   * 每格之间的固定间隔(毫秒)。
+   *
+   * 不是礼貌,是必需:格与格背靠背连打会把配额打穿。实测连续跑约 40 格后端点
+   * 开始返回 429,而 A4/A5 恰好排在那之后,于是整臂数据不可用——那种失败与
+   * 拓扑无关,却会被读成"更复杂的臂更不可靠"。
+   *
+   * 默认 0(离线测试不等待);实况运行由调用方显式给值。
+   */
+  readonly pacingMs?: number;
+  /** 注入的 sleep,便于测试不真的等待。 */
+  readonly sleep?: (ms: number) => Promise<void>;
 }
 
 export interface RunnerSummary {
@@ -139,6 +151,10 @@ export async function runGrid(opts: RunnerOptions): Promise<RunnerSummary> {
   const transcriptDir = opts.transcriptDir ?? DEFAULT_TRANSCRIPT_DIR;
   const completed = opts.completedKeys ?? new Set<string>();
   const alpha = opts.trustAlpha ?? 0.2;
+  const pacingMs = opts.pacingMs ?? 0;
+  const sleep =
+    opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  let executed = 0;
 
   const records: RunRecord[] = [];
   const failed: { cellKey: string; error: string }[] = [];
@@ -151,6 +167,11 @@ export async function runGrid(opts: RunnerOptions): Promise<RunnerSummary> {
       skipped += 1;
       continue;
     }
+    // 格间节流:在**每次真正执行之前**等待(跳过的格不等待),避免把配额打穿。
+    if (pacingMs > 0 && executed > 0) {
+      await sleep(pacingMs);
+    }
+    executed += 1;
     try {
       let trustTable: TrustTable | undefined;
       if (opts.trustStorage !== undefined && cell.condition.arm.roleTrust) {

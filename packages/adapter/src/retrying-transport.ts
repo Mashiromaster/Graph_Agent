@@ -46,9 +46,17 @@ export interface RetryOptions {
   }) => void;
 }
 
-const DEFAULT_MAX_ATTEMPTS = 4;
-const DEFAULT_BASE_DELAY_MS = 2000;
-const DEFAULT_MAX_DELAY_MS = 30000;
+// 默认值按实测的 429 行为定,不是凭感觉取整数。
+//
+// 旧值(4 次、2s 起)总退避只有 2+4+8 = 14s,而配额窗口通常 ≥60s——14s 的退避
+// 根本熬不过一个窗口。实测后果:A4 臂 9/9 全败、A5 臂 5/8 败,其中短延迟格
+// (24s、67s)就是 4 次尝试在 14s 内耗尽后放弃。
+//
+// 6 次、5s 起、上限 60s → 总退避 5+10+20+40+60 = 135s,可跨过一个典型窗口。
+// 代价是单格最坏情况多等 2 分钟;相比"整臂数据不可用"这是便宜的。
+const DEFAULT_MAX_ATTEMPTS = 6;
+const DEFAULT_BASE_DELAY_MS = 5000;
+const DEFAULT_MAX_DELAY_MS = 60000;
 
 /** 从 ModelTransportError 的消息里取 HTTP 状态码;非 HTTP 失败返回 null。 */
 export function statusOf(error: unknown): number | null {

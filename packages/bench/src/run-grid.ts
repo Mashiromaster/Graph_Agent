@@ -6,23 +6,22 @@
  * 先导数据给出配对质量差的 sd ≈ 0.15,按 alpha=.05 / power=.80 反解,15 个配对
  * 可检出 delta ≈ 0.11。3 题 × 5 种子正好给到 15 配对/配置。
  *
- * ## 真正的瓶颈是墙钟时间
+ * ## 真正的瓶颈是墙钟时间与配额,不是 token 总量
  *
- * 实测该端点单次调用约 21s,且**不支持并发**——6 个并发请求直接挂死超过 3 分钟。
- * 因此 runner 必须串行,总时长 = 调用数 × 21s:
+ * 该端点**不支持并发**(6 个并发请求挂死超过 3 分钟),故 runner 串行。实测单格
+ * 耗时分两档:不派生 96s、派生 313s。3 题 × 3 种子 = 153 格(27 solo + 126
+ * spawning)≈ 11.7 小时 ≈ 320 万 token。
  *
- *   small  7 配置 × 15 = 105 格
- *   mid    7 配置 × 15 = 105 格
- *   front  3 配置 × 15 =  45 格(确认子集 A1/A3/A5)
- *   合计 255 格 ≈ 1095 次模型调用 ≈ 6.4 小时 ≈ 530 万 token
- *
- * token 不是约束(5.3M 远低于配额压力),墙钟才是。这也是为什么不选 8 种子:
- * 功效从 0.11 提到 0.086,代价是 10.2 小时。
+ * 更要紧的约束是配额:实测连打约 40 格后开始返回 **HTTP 429**,而 A4/A5 恰好排在
+ * 其后,整臂 9/9 与 5/8 作废。那种失败与拓扑无关,却会被读成"更复杂的臂更不
+ * 可靠"。两处应对:格间 20s 节流(见 pacingMs),以及把重试退避总量提到 135s
+ * 以跨过一个典型配额窗口(见 retrying-transport 的默认值)。
  *
  * ## 中断安全
  *
- * 逐格 append JSONL,`loadCompletedKeys` 支持幂等重入。6 小时的运行几乎必然
- * 遇到至少一次网络抖动或限流,重入能力不是奢侈品。
+ * 逐格 append JSONL,`loadCompletedKeys` 支持幂等重入。十余小时的运行几乎必然
+ * 遇到限流或网络抖动,重入能力不是奢侈品。注意:重入只跳过**成功**格——被
+ * 限流污染的失败格应先从 JSONL 删除,否则会被当成已完成而永不重跑。
  */
 
 import { FileStorage } from "@graph-agent/session";
@@ -114,6 +113,9 @@ export async function main(opts: GridOptions = {}): Promise<void> {
     factoryFor: (model) => liveModelFactory(model),
     sink,
     completedKeys: completed,
+    // 格间 20s 节流:实测连打约 40 格后端点开始 429,A4/A5 恰好排在其后而
+    // 整臂作废。20s 相对单格 96–313s 只增约 10% 墙钟,换来配额不被打穿。
+    pacingMs: 20000,
     // trust 表跨运行累积,仅在启用 roleTrust 的臂(A5)上更新。
     trustStorage: new FileStorage({ rootDir }),
     trustAlpha: 0.2,
