@@ -8,4 +8,4 @@ wall   : ~11.7 h serial (solo 96s, spawning 313s; endpoint rejects concurrency)
   small: ~1.32M tokens
   mid: ~1.32M tokens
   frontier: ~0.57M tokens
-resuming: 76 cells already recorded
+resuming: 112 cells already recorded

@@ -62,7 +62,17 @@ export function liveModelMatrix(
       // 一个输出预算配置错误写成"多 agent 更差"的结论——正是本文开篇批评的
       // 那类混淆。上限必须给到任务能自然收尾,否则质量轴测的是截断位置。
       maxOutputTokens: 16384,
-      timeoutSeconds: 600,
+      // 240s **单次请求**上限,必须与重试次数、节点时限一起推导,不能各自拍。
+      //
+      // 约束是 `maxAttempts × requestTimeout + backoff < nodeTimeout`。
+      // 原值 600s 下:6 × 600 + 135 = 3735s,单次挂起的调用就能吃掉整个 3600s
+      // 节点时限——实测两格 mid 档 A5 失败于 4490s 与 5645s,与此算式吻合,
+      // 且 `calls=0`(没有任何调用成功返回)。
+      //
+      // 240s 的依据:成功格的**整节点**墙钟 p95 为 555s、最大 666s,故单次请求
+      // 超过 240s 已属挂起而非慢速生成。新算式 6 × 240 + 135 = 1575s,两轮
+      // 3150s < 3600s,留有余量。
+      timeoutSeconds: 240,
       confirmatoryOnly: tier.confirmatoryOnly,
       dialect: "anthropic",
     });
