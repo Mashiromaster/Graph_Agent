@@ -2,53 +2,10 @@
 models : small(Claude-Fable-5-zl), mid(Claude-Sonnet-5-zl), frontier(Claude-Opus-5-zl)
 tasks  : brief-storage, brief-consensus, brief-compiler
 seeds  : [0,1,2] (confirmatory [0,1,2])
-cells  : 153
+cells  : 153 (27 solo, 126 spawning)
 tokens : ~3.21M
-wall   : ~3.1 h serial (endpoint rejects concurrency)
+wall   : ~11.7 h serial (solo 96s, spawning 313s; endpoint rejects concurrency)
   small: ~1.32M tokens
   mid: ~1.32M tokens
   frontier: ~0.57M tokens
-[1/153] A1+fanin+deliv brief-storage s0 small q=0.75 n=1 tok=10715 | eta 381min
-[2/153] A1+fanin+deliv brief-storage s1 small q=0.75 n=1 tok=10715 | eta 197min
-[3/153] A1+fanin+deliv brief-storage s2 small q=0.75 n=1 tok=10715 | eta 135min
-[4/153] A1+fanin+deliv brief-consensus s0 small q=0.63 n=1 tok=13110 | eta 213min
-[5/153] A1+fanin+deliv brief-consensus s1 small q=0.63 n=1 tok=13110 | eta 172min
-[6/153] A1+fanin+deliv brief-consensus s2 small q=0.63 n=1 tok=13110 | eta 145min
-[7/153] A1+fanin+deliv brief-compiler s0 small q=0.75 n=1 tok=10677 | eta 177min
-[8/153] A1+fanin+deliv brief-compiler s1 small q=0.63 n=1 tok=13198 | eta 212min
-[9/153] A1+fanin+deliv brief-compiler s2 small q=0.75 n=1 tok=11190 | eta 230min
-[10/153] A2+fanin+deliv brief-storage s0 small q=0.75 n=4 tok=32714 | eta 277min
-[11/153] A2+fanin+deliv brief-storage s1 small q=0.75 n=4 tok=34310 | eta 323min
-[12/153] A2+fanin+deliv brief-storage s2 small q=0.75 n=4 tok=30510 | eta 353min
-[13/153] A2+fanin+deliv brief-consensus s0 small q=0.50 n=4 tok=35848 | eta 385min
-[14/153] A2+fanin+deliv brief-consensus s1 small q=0.63 n=4 tok=32822 | eta 407min
-[15/153] A2+fanin+deliv brief-consensus s2 small q=0.63 n=4 tok=35656 | eta 435min
-[16/153] A2+fanin+deliv brief-compiler s0 small q=0.63 n=4 tok=41376 | eta 464min
-[17/153] A2+fanin+deliv brief-compiler s1 small q=0.75 n=1 tok=12388 | eta 456min
-[18/153] A2+fanin+deliv brief-compiler s2 small q=0.75 n=1 tok=12388 | eta 428min
-[19/153] A3+fanin+deliv brief-storage s0 small q=0.75 n=3 tok=26808 | eta 441min
-[20/153] A3+fanin+deliv brief-storage s1 small q=0.75 n=4 tok=34770 | eta 454min
-[21/153] A3+fanin+deliv brief-storage s2 small q=0.75 n=4 tok=36033 | eta 442min
-[22/153] A3+fanin+deliv brief-consensus s0 small q=0.00 n=3 tok=70245 | eta 444min
-[23/153] A3+fanin+deliv brief-consensus s1 small q=0.63 n=3 tok=32015 | eta 458min
-[24/153] A3+fanin+deliv brief-consensus s2 small q=0.63 n=1 tok=9712 | eta 447min
-[25/153] A3+fanin+deliv brief-compiler s0 small q=0.75 n=1 tok=10501 | eta 437min
-[26/153] A3+fanin+deliv brief-compiler s1 small q=0.50 n=1 tok=10759 | eta 430min
-[27/153] A3+fanin+deliv brief-compiler s2 small q=0.75 n=1 tok=10828 | eta 422min
-[28/153] A4+fanin+deliv brief-storage s0 small q=0.00 n=1 tok=120000 | eta 527min
-[29/153] A4+fanin+deliv brief-storage s1 small q=0.00 n=1 tok=120000 | eta 579min
-[30/153] A4+fanin+deliv brief-storage s2 small q=0.00 n=1 tok=120000 | eta 617min
-[31/153] A4+fanin+deliv brief-consensus s0 small q=0.00 n=1 tok=120000 | eta 597min
-[32/153] A4+fanin+deliv brief-consensus s1 small q=0.00 n=1 tok=120000 | eta 698min
-[33/153] A4+fanin+deliv brief-consensus s2 small q=0.00 n=1 tok=120000 | eta 673min
-[34/153] A4+fanin+deliv brief-compiler s0 small q=0.00 n=1 tok=120000 | eta 701min
-[35/153] A4+fanin+deliv brief-compiler s1 small q=0.00 n=1 tok=120000 | eta 774min
-[36/153] A4+fanin+deliv brief-compiler s2 small q=0.00 n=1 tok=120000 | eta 797min
-[37/153] A5+fanin+deliv brief-storage s0 small q=0.00 n=1 tok=120000 | eta 770min
-[38/153] A5+fanin+deliv brief-storage s1 small q=0.00 n=1 tok=120000 | eta 791min
-[39/153] A5+fanin+deliv brief-storage s2 small q=0.00 n=1 tok=120000 | eta 868min
-[40/153] A5+fanin+deliv brief-consensus s0 small q=0.00 n=1 tok=120000 | eta 882min
-[41/153] A5+fanin+deliv brief-consensus s1 small q=0.00 n=1 tok=120000 | eta 914min
-[42/153] A5+fanin+deliv brief-consensus s2 small q=0.50 n=1 tok=10340 | eta 901min
-[43/153] A5+fanin+deliv brief-compiler s0 small q=0.50 n=1 tok=10676 | eta 878min
-[44/153] A5+fanin+deliv brief-compiler s1 small q=0.50 n=1 tok=10676 | eta 851min
+resuming: 76 cells already recorded

@@ -250,11 +250,18 @@ export function rootSpecFor(condition: Condition, nodeId = "root"): AgentSpec {
       maxTotalTokens: arm.spawn
         ? Math.floor((SHARED_TOKEN_BUDGET * 3) / 4)
         : SHARED_TOKEN_BUDGET,
-      // 900s:单节点产出约 10k token 实测耗时 138s,而派生臂的 root 要跑两轮
-      // (派生 + 汇总)并在第二轮读回子节点产出,实测 180s 恰好卡死在上限上
-      // → 超时转为结构化 FAILED、提交整笔预留、q=0。那种 0 分同样与拓扑无关。
-      // 该端点吞吐约 70–80 token/s,长产出本就慢,上限必须留足余量。
-      timeoutSeconds: 900,
+      // 3600s。节点时限必须同时容纳**生成时间**与**重试退避**。
+      //
+      // 推导:端点吞吐约 70–80 token/s,单轮长产出约 140s;重试配置为 6 次尝试、
+      // 5s 起、60s 上限 → 单次调用最坏退避 5+10+20+40+60 = 135s;maxTurns=6。
+      // 最坏情况 6 × (140 + 135) = 1650s,慢档模型更高。
+      //
+      // 900s 时实测的后果:A5(三个图工具 → 轮次最多)12 格失败,延迟分布
+      // 165–3738s,其中多数超过 900s——**是重试退避把节点推过了时限**,而非
+      // 429 本身致命。这是两个修复叠加出的新失效模式:加退避解决了 429,却
+      // 让时限成为新瓶颈。mid 档 A2 的 4 格失败(911–3873s)是同一机制在更慢
+      // 模型上的表现。
+      timeoutSeconds: 3600,
     }),
     policy: {
       maxGeneration: arm.spawn ? 2 : 0,
