@@ -113,9 +113,14 @@ export async function main(opts: GridOptions = {}): Promise<void> {
     factoryFor: (model) => liveModelFactory(model),
     sink,
     completedKeys: completed,
-    // 格间 20s 节流:实测连打约 40 格后端点开始 429,A4/A5 恰好排在其后而
-    // 整臂作废。20s 相对单格 96–313s 只增约 10% 墙钟,换来配额不被打穿。
+    // 节流:以 token 配额为准,20s 为下限。
+    //
+    // 实测 429 的真实原因是 `tokens limit for minute`(按 token 的滑动窗口),
+    // 而非请求频率——故固定间隔治不了:mid 档单格抽 8105 tok/min,而探测显示
+    // 约 4458 tok/min 才可持续。按上一格实际用量自适应,重格多等、轻格少等,
+    // frontier 档自动获得更长间隔。
     pacingMs: 20000,
+    tokensPerMinute: 4000,
     // trust 表跨运行累积,仅在启用 roleTrust 的臂(A5)上更新。
     trustStorage: new FileStorage({ rootDir }),
     trustAlpha: 0.2,

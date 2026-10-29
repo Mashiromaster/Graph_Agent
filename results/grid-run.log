@@ -9,3 +9,14 @@ wall   : ~11.7 h serial (solo 96s, spawning 313s; endpoint rejects concurrency)
   mid: ~1.32M tokens
   frontier: ~0.57M tokens
 resuming: 112 cells already recorded
+[1/153] A5-fanin+deliv brief-consensus s1 mid q=0.75 n=4 tok=46997 | eta 609min
+[2/153] A5-fanin+deliv brief-consensus s2 mid q=0.63 n=4 tok=54615 | eta 704min
+[3/153] A5-fanin+deliv brief-compiler s0 mid q=0.00 n=3 tok=32560 | eta 624min
+[4/153] A5-fanin+deliv brief-compiler s1 mid q=0.00 n=4 tok=73792 | eta 2806min
+[5/153] A5-fanin+deliv brief-compiler s2 mid q=0.00 n=1 tok=120000 | eta 6129min
+[6/153] A5+fanin-deliv brief-storage s0 mid q=0.00 n=1 tok=120000 | eta 8107min
+[7/153] A5+fanin-deliv brief-storage s1 mid q=0.00 n=1 tok=120000 | eta 9249min
+[8/153] A5+fanin-deliv brief-storage s2 mid q=0.00 n=1 tok=120000 | eta 9501min
+[9/153] A5+fanin-deliv brief-consensus s0 mid q=0.00 n=1 tok=120000 | eta 9459min
+[10/153] A5+fanin-deliv brief-consensus s1 mid q=0.00 n=1 tok=120000 | eta 9461min
+[11/153] A5+fanin-deliv brief-consensus s2 mid q=0.00 n=1 tok=120000 | eta 9422min

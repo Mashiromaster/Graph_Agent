@@ -110,15 +110,27 @@ export interface RunnerOptions {
   readonly onProgress?: (done: number, total: number, record: RunRecord) => void;
   readonly wallClock?: () => number;
   /**
-   * 每格之间的固定间隔(毫秒)。
-   *
-   * 不是礼貌,是必需:格与格背靠背连打会把配额打穿。实测连续跑约 40 格后端点
-   * 开始返回 429,而 A4/A5 恰好排在那之后,于是整臂数据不可用——那种失败与
-   * 拓扑无关,却会被读成"更复杂的臂更不可靠"。
+   * 每格之间的固定间隔(毫秒)。与 `tokensPerMinute` 二者取较大的等待量。
    *
    * 默认 0(离线测试不等待);实况运行由调用方显式给值。
    */
   readonly pacingMs?: number;
+  /**
+   * 端点的**每分钟 token** 配额。给定则按上一格的实际用量自适应节流。
+   *
+   * 固定间隔不够用:实测 429 的原因是 `tokens limit for minute`——按 token 计费
+   * 的滑动窗口,而非请求频率。各格用量相差两倍以上(small 约 19.6k、mid 约
+   * 36.1k、A5 派生格约 43.6k),同一个常数间隔对轻格浪费、对重格仍然超限。
+   *
+   * 实测 small 档持续抽取约 5639 tok/min、mid 约 8105 tok/min,而探测显示
+   * 约 4458 tok/min 可持续不触发 429——mid 档超了近一倍,这正是 A5 mid 格
+   * 连续失败的原因(最后 12 格失败 8 格)。
+   *
+   * 自适应公式:上一格用了 T 个 token,则该格应占用 T / tokensPerMinute 分钟的
+   * 窗口;已经花掉的墙钟时间可以抵扣,只补足差额。这样重格多等、轻格少等,
+   * 且 frontier 档(更重)自动获得更长间隔,无需另调常数。
+   */
+  readonly tokensPerMinute?: number;
   /** 注入的 sleep,便于测试不真的等待。 */
   readonly sleep?: (ms: number) => Promise<void>;
 }
@@ -152,9 +164,13 @@ export async function runGrid(opts: RunnerOptions): Promise<RunnerSummary> {
   const completed = opts.completedKeys ?? new Set<string>();
   const alpha = opts.trustAlpha ?? 0.2;
   const pacingMs = opts.pacingMs ?? 0;
+  const tokensPerMinute = opts.tokensPerMinute ?? 0;
   const sleep =
     opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   let executed = 0;
+  // 上一格的用量与耗时,用于自适应节流(见 tokensPerMinute 的说明)。
+  let lastTokens = 0;
+  let lastElapsedMs = 0;
 
   const records: RunRecord[] = [];
   const failed: { cellKey: string; error: string }[] = [];
@@ -168,8 +184,17 @@ export async function runGrid(opts: RunnerOptions): Promise<RunnerSummary> {
       continue;
     }
     // 格间节流:在**每次真正执行之前**等待(跳过的格不等待),避免把配额打穿。
-    if (pacingMs > 0 && executed > 0) {
-      await sleep(pacingMs);
+    if (executed > 0) {
+      // 按 token 配额自适应:上一格用了 T 个 token,就该占用
+      // T / tokensPerMinute 分钟的窗口;已花掉的墙钟可抵扣,只补差额。
+      const quotaWaitMs =
+        tokensPerMinute > 0
+          ? Math.max(0, (lastTokens / tokensPerMinute) * 60_000 - lastElapsedMs)
+          : 0;
+      const waitMs = Math.max(pacingMs, quotaWaitMs);
+      if (waitMs > 0) {
+        await sleep(waitMs);
+      }
     }
     executed += 1;
     try {
@@ -203,6 +228,8 @@ export async function runGrid(opts: RunnerOptions): Promise<RunnerSummary> {
         );
       }
 
+      lastTokens = result.record.committedTokens;
+      lastElapsedMs = result.record.latencyMs;
       records.push(result.record);
       done += 1;
       opts.onProgress?.(done, opts.cells.length, result.record);

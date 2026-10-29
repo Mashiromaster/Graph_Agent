@@ -275,6 +275,62 @@ describe("runGrid", () => {
     expect(summary.succeeded).toBe(1);
   });
 
+  it("paces by measured token draw, not a constant gap", async () => {
+    // 实测 429 是 `tokens limit for minute`(按 token 的滑动窗口),故固定间隔
+    // 治不了:各格用量相差两倍以上,常数对轻格浪费、对重格仍超限。
+    const sink = memorySink();
+    const cells = plannedCells({ models: [smallModel], tasks: [task], seeds: [0, 1] }).filter(
+      (c) => c.condition.arm.id === "A1",
+    );
+    const waits: number[] = [];
+    await runGrid({
+      cells,
+      factoryFor: () => soloFactory(),
+      sink,
+      wallClock: clock(),
+      tokensPerMinute: 1000,
+      sleep: async (ms) => void waits.push(ms),
+    });
+    // 第一格不等待;第二格按第一格用量补足窗口差额。
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBeGreaterThan(0);
+  });
+
+  it("takes the larger of the fixed gap and the quota wait", async () => {
+    const sink = memorySink();
+    const cells = plannedCells({ models: [smallModel], tasks: [task], seeds: [0, 1] }).filter(
+      (c) => c.condition.arm.id === "A1",
+    );
+    const waits: number[] = [];
+    await runGrid({
+      cells,
+      factoryFor: () => soloFactory(),
+      sink,
+      wallClock: clock(),
+      pacingMs: 999_000,
+      tokensPerMinute: 1_000_000, // quota wait ~0
+      sleep: async (ms) => void waits.push(ms),
+    });
+    expect(waits[0]).toBe(999_000);
+  });
+
+  it("does not wait before the first executed cell", async () => {
+    const sink = memorySink();
+    const cells = plannedCells({ models: [smallModel], tasks: [task], seeds: [0] }).filter(
+      (c) => c.condition.arm.id === "A1",
+    );
+    const waits: number[] = [];
+    await runGrid({
+      cells,
+      factoryFor: () => soloFactory(),
+      sink,
+      wallClock: clock(),
+      pacingMs: 5000,
+      sleep: async (ms) => void waits.push(ms),
+    });
+    expect(waits).toEqual([]);
+  });
+
   it("reports progress for each completed cell", async () => {
     const sink = memorySink();
     const cells = plannedCells({ models: [smallModel], tasks: [task], seeds: [0] }).filter(
