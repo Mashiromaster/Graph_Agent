@@ -232,9 +232,9 @@ export async function runOne(opts: HarnessOptions): Promise<HarnessResult> {
   // 即为 failed。这与"预算对等 + fail-closed"的整体立场一致——部分失败的运行
   // 不该贡献质量数据。
   const runSucceeded = finalSnapshot.status === RunStatus.SUCCEEDED;
-  const rootOutput = runSucceeded ? await extractRootOutput(controller, runId) : null;
+  const graphOutput = runSucceeded ? await extractGraphOutput(controller, runId) : null;
   const quality = runSucceeded
-    ? await task.scorer(rootOutput)
+    ? await task.scorer(graphOutput)
     : { value: 0, detail: `run ${finalSnapshot.status}; output not scored` };
 
   const transcript: Transcript = Object.freeze({
@@ -320,24 +320,55 @@ async function wireFanIn(
   return current;
 }
 
-/** 取 root 节点的归档输出(root 负责综合最终答案)。 */
-async function extractRootOutput(
+/**
+ * 取**整张图**的产出:root 与全部子节点的归档输出拼接。
+ *
+ * ## 为什么不能只取 root
+ *
+ * 这是整轮实验里影响最大的一个错误,且**系统性地压低每一个派生臂**。
+ *
+ * BSP 语义决定了 root 不可能综合子节点的产出:root 在第 1 个 superstep 跑完并
+ * 进入终态,子节点在第 2 个 superstep 才运行,而节点只执行一次、永不重入
+ * (见 GRAPH_CONTROLLER.md)。所以 root 的终文本必然只是一句"已提交子任务、
+ * 待其返回后我再综合"。实测一例:root 输出 802 字符的承诺,而三个子节点共产出
+ * 25210 字符的真实内容——评分器只看 root,得 0/8;而全图文本里八个子问题的
+ * 必需关键词**全部命中**。
+ *
+ * 换言之,此前 mid 档那 14 个 q=0 的"失败"根本不是失败,是把答案扔掉了。
+ * 而且由于只有派生臂有子节点,这个错误只惩罚 A2–A5,不影响 A1——正是会被读成
+ * "多 agent 更差"的那种偏差。
+ *
+ * ## 为什么拼接是正确口径而非权宜
+ *
+ * 任务要求的产出是"覆盖八个子问题的技术简报"。在图运行时里,这份简报的载体就是
+ * 整张图的产出集合;要求它必须出现在单个节点的文本里,等于要求运行时具备
+ * 它结构上不具备的能力(节点重入)。覆盖度评分器度量的是"八个领域是否都被实际
+ * 覆盖",这正是全图语义下的正确判据。
+ *
+ * 按 nodeId 排序拼接以保证确定性(archivedResults 的顺序不保证稳定)。
+ */
+async function extractGraphOutput(
   controller: GraphController,
   runId: string,
 ): Promise<string | null> {
-  // 控制器不暴露 archivedResults;经 v2 checkpoint 取回 root 的归档结果。
+  // 控制器不暴露 archivedResults;经 v2 checkpoint 取回全部归档结果。
   const json = await controller.checkpointResumable(runId);
   const parsed = JSON.parse(json) as {
     resumable?: { archivedResults?: { nodeId: string; result?: { output?: unknown } }[] };
   };
   const archived = parsed.resumable?.archivedResults ?? [];
+  const parts: { nodeId: string; text: string }[] = [];
   for (const entry of archived) {
-    if (entry.nodeId === "root") {
-      const output = entry.result?.output;
-      return typeof output === "string" ? output : null;
+    const output = entry.result?.output;
+    if (typeof output === "string" && output.trim().length > 0) {
+      parts.push({ nodeId: entry.nodeId, text: output });
     }
   }
-  return null;
+  if (parts.length === 0) {
+    return null;
+  }
+  parts.sort((a, b) => (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0));
+  return parts.map((p) => p.text).join("\n\n");
 }
 
 /** 序列化为一行 JSONL。 */
