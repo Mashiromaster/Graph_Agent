@@ -17,3 +17,15 @@ awesome-llm-apps/
 node_modules/
 packages/*/dist/
 *.tsbuildinfo
+
+# LaTeX 构建产物(main.pdf 也不入库:它是 main.tex + refs.bib 的函数,
+# 且每次编译字节不同,入库只会产生无意义的 diff)
+manuscript/*.aux
+manuscript/*.bbl
+manuscript/*.blg
+manuscript/*.fdb_latexmk
+manuscript/*.fls
+manuscript/*.log
+manuscript/*.out
+manuscript/*.pdf
+manuscript/*.synctex.gz
