@@ -58,6 +58,8 @@ export interface ModelSpec {
   readonly timeoutSeconds: number;
   /** 分层:true 表示只跑确认子集(A1/A3/A5)。 */
   readonly confirmatoryOnly: boolean;
+  /** 重试尝试次数上限;省略用适配器默认值。 */
+  readonly retryAttempts?: number;
   /** 线格式方言;省略默认 openai(保持既有行为)。 */
   readonly dialect?: ApiDialect;
   /** 额外请求体字段(如 DeepSeek 的 thinking 开关);仅 openai 方言使用。 */
@@ -127,6 +129,9 @@ export function liveModelFactory(
             maxOutputTokens: spec.maxOutputTokens,
             // Anthropic 适配器有专门的 temperature 参数,直接传。
             temperature: spec.temperature,
+            ...(spec.retryAttempts !== undefined
+              ? { retry: { maxAttempts: spec.retryAttempts } }
+              : {}),
           })
         : new OpenAICompatibleModel({
             model: spec.model,

@@ -76,7 +76,16 @@ export function liveModelMatrix(
       // 240s 的依据:成功格的**整节点**墙钟 p95 为 555s、最大 666s,故单次请求
       // 超过 240s 已属挂起而非慢速生成。新算式 6 × 240 + 135 = 1575s,两轮
       // 3150s < 3600s,留有余量。
-      timeoutSeconds: 240,
+      // 180s 单次请求上限 + 3 次尝试。约束必须按**全部轮次**算,不是单轮:
+      //   maxTurns × (生成 + attempts × requestTimeout + backoff) < nodeTimeout
+      // 之前只算了单轮,于是 6 次尝试 × 240s 在 6 轮下最坏 10890s,远超 3600s
+      // 节点时限——实测 mid 档三格失败于 3915/3951/5992s,正是重试跨多轮累积。
+      // 新算式:6 × (180 + 3×180 + 15) = 4410s < 7200s。
+      //
+      // 180s 的依据:成功格的**整节点**墙钟 p95 为 629s,故单次请求超过 180s
+      // 已属挂起;3 次尝试配 5+10=15s 退避仍能跨过一个 60s 的 429 窗口。
+      timeoutSeconds: 180,
+      retryAttempts: 3,
       confirmatoryOnly: tier.confirmatoryOnly,
       dialect: "anthropic",
     });

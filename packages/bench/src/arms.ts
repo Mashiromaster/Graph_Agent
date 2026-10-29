@@ -261,7 +261,7 @@ export function rootSpecFor(condition: Condition, nodeId = "root"): AgentSpec {
       // 429 本身致命。这是两个修复叠加出的新失效模式:加退避解决了 429,却
       // 让时限成为新瓶颈。mid 档 A2 的 4 格失败(911–3873s)是同一机制在更慢
       // 模型上的表现。
-      timeoutSeconds: 3600,
+      timeoutSeconds: 7200,
     }),
     policy: {
       maxGeneration: arm.spawn ? 2 : 0,
