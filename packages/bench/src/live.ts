@@ -9,11 +9,11 @@
  *   - 带 tools 的请求会返回 `thinking` 块
  * 故矩阵统一用 `dialect: "anthropic"`。
  *
- * ## 三档模型
+ * ## 两档模型(frontier 已排除)
  *
- * 环境变量给出三个档位的模型名,正好对应论文 §5 需要的「小/中/前沿」三档,
- * 且同属一个 provider——跨档比较不掺入 provider 实现差异,这比跨厂商更干净。
- * 前沿档标 `confirmatoryOnly`,只跑 A1/A3/A5 确认子集。
+ * 环境变量给出三个档位,但只用 small/mid:两者同属一个 provider,跨档比较不掺入
+ * provider 实现差异。frontier 档因端点侧输出上限无法公平比较而排除,原因见下方
+ * tiers 数组里的注释,§5 须如实写明——跨模型稳定性结论只覆盖两档。
  */
 
 import {
@@ -38,7 +38,11 @@ export function liveModelMatrix(
   const tiers: { name: string; envVar: string; confirmatoryOnly: boolean }[] = [
     { name: "small", envVar: "ANTHROPIC_DEFAULT_HAIKU_MODEL", confirmatoryOnly: false },
     { name: "mid", envVar: "ANTHROPIC_DEFAULT_SONNET_MODEL", confirmatoryOnly: false },
-    { name: "frontier", envVar: "ANTHROPIC_DEFAULT_OPUS_MODEL", confirmatoryOnly: true },
+    // frontier 档**不纳入**:实测该档 thinking 占输出预算 80%(small 为 3%),
+    // 要产出同等正文量需约 32000 token——正是它已截断的点,而 48000 触发服务端
+    // 网关超时。上限由上游施加,没有任何配置能给它平等机会,故跨模型稳定性
+    // 结论只覆盖 small/mid 两档,§5 如实写明。
+    // { name: "frontier", envVar: "ANTHROPIC_DEFAULT_OPUS_MODEL", confirmatoryOnly: true },
   ];
   const specs: ModelSpec[] = [];
   for (const tier of tiers) {
