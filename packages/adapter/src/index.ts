@@ -25,6 +25,7 @@ export {
 } from "./transport.js";
 export type { JSONTransport } from "./transport.js";
 export { RetryingTransport, isRetryable, statusOf } from "./retrying-transport.js";
+export { NodeHttpsTransport } from "./node-https-transport.js";
 export type { RetryOptions } from "./retrying-transport.js";
 export { OpenAICompatibleModel } from "./openai-compatible.js";
 export { AnthropicMessagesModel } from "./anthropic-messages.js";

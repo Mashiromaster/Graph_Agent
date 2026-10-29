@@ -42,6 +42,7 @@ import type { ModelAdapter } from "./model.js";
 import { FetchJSONTransport, InvalidModelResponse } from "./transport.js";
 import type { JSONTransport } from "./transport.js";
 import { RetryingTransport, type RetryOptions } from "./retrying-transport.js";
+import { NodeHttpsTransport } from "./node-https-transport.js";
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -125,7 +126,10 @@ export class AnthropicMessagesModel implements ModelAdapter {
     this.maxOutputTokens = assertFinitePositive(opts.maxOutputTokens, "maxOutputTokens");
     this.timeoutSeconds = assertFinitePositive(opts.timeoutSeconds ?? 120, "timeoutSeconds");
     this.temperature = opts.temperature;
-    const base = opts.transport ?? new FetchJSONTransport();
+    // 默认走 node:https 而非全局 fetch:后者在 HTTP/2 上有硬编码的 300s
+    // headers 超时且不可配置,而前沿档模型实测需要 363s 才返回首字节。
+    // 详见 node-https-transport.ts 的文件头。
+    const base = opts.transport ?? new NodeHttpsTransport();
     // 默认包一层重试:端点间歇 503,而一次 503 会让整格质量记为 0。
     // 显式传 retry: null 可关闭(测试里用 fake transport 时不需要退避等待)。
     this.transport =

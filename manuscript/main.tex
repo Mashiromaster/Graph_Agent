@@ -11,11 +11,13 @@
 % ⚠ 所有标为 \TODO 的数字尚未测得。实况实验需要 API 凭据;在跑完之前
 %   不得填入任何占位数值——编造的数字即便标注"示意"也会污染后续写作。
 
-\documentclass{article}
+\documentclass[10pt]{article}
 
-% 投稿时替换为:\usepackage{tmlr}
-% 匿名评审阶段用 tmlr(默认匿名);camera-ready 用 \usepackage[accepted]{tmlr}
-\usepackage[preprint]{neurips_2024}  % 占位,仅供本地排版预览
+% 官方 TMLR 样式(tmlr.sty / fancyhdr.sty / tmlr.bst 已随稿存放在本目录)。
+% 评审阶段用默认(匿名);camera-ready 换 [accepted];arXiv 预印本用 [preprint]。
+\usepackage{tmlr}
+% \usepackage[accepted]{tmlr}
+% \usepackage[preprint]{tmlr}
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -26,16 +28,18 @@
 \usepackage{amsthm}
 \usepackage{amssymb}
 \usepackage{graphicx}
+\usepackage{xcolor}
 
 \newtheorem{theorem}{Theorem}
 \newtheorem{definition}{Definition}
 \newcommand{\TODO}[1]{\textcolor{red}{[TODO: #1]}}
-\usepackage{xcolor}
 
 \title{A Deterministic Runtime for Agent-Graph Research,\\
        and What It Says About Weights and Messages}
 
-\author{Anonymous}
+% TMLR 的 \author 用 \name / \email 配对,多作者间以 \AND 分隔。
+% 评审阶段 tmlr.sty 自动匿名化,此处内容不会显示;camera-ready 时填真实信息。
+\author{\name Anonymous \email anonymous@example.com}
 
 \begin{document}
 \maketitle
@@ -325,7 +329,8 @@ than describing the setup as sandboxed.
 
 \TODO{Conclusion paragraph once results exist.}
 
-\bibliographystyle{plainnat}
+% tmlr.bst 而非 plainnat:官方样式自带 bst,混用会导致引用格式与模板不符。
+\bibliographystyle{tmlr}
 \bibliography{refs}
 
 \appendix
