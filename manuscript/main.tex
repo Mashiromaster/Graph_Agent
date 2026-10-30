@@ -853,21 +853,165 @@ instead of trusting us.
 
 \appendix
 
-\section{Framework survey}
-\TODO{Full 14-framework comparison across seven capability axes.}
+\section{Rejection codes at the ingestion boundary}
+\label{app:codes}
 
-\section{Rejection codes}
-\TODO{The validation codes enforced at the ingestion boundary.}
+Twenty-four codes are enforced when a result is ingested. They are grouped here
+by what they protect, because the grouping is the design: an agent cannot reach
+a forbidden state through any single path, and a result that trips any code
+adopts \emph{none} of its proposals.
 
-\section{Hash chain and checkpoint schemas}
-\TODO{Event chain schema; checkpoint v1 and v2 formats.}
+\paragraph{Result integrity (6).}
+\texttt{MALFORMED\_RESULT}, \texttt{INVALID\_NODE\_STATUS},
+\texttt{INVALID\_USAGE}, \texttt{RESULT\_BINDING\_MISMATCH},
+\texttt{INVALID\_EVENT\_CHAIN}, \texttt{INVALID\_EVENT\_SCHEMA}.
+\texttt{RESULT\_BINDING\_MISMATCH} is the load-bearing one: a result carries a
+hash binding its node identifier, status, output, usage and all three proposal
+lists, so a result cannot be edited in transit or replayed against a different
+node. \texttt{INVALID\_USAGE} rejects reported usage exceeding the reservation,
+which is what stops a model from over-reporting to inflate its own budget.
 
-\section{Per-instance results and cost tables}
-\TODO{}
+\paragraph{Structural limits (6).}
+\texttt{NODE\_LIMIT}, \texttt{EDGE\_LIMIT}, \texttt{CHILD\_LIMIT},
+\texttt{DEPTH\_LIMIT}, \texttt{PROPOSAL\_LIMIT}, \texttt{GENERATION\_MISMATCH}.
+These bound the graph independently of what the model requests, which is why
+arm A1 is single-agent by construction rather than by the model's cooperation:
+its policy sets \texttt{maxNodes} to one, so a spawn proposal is rejected even
+if the tool were somehow reachable.
+
+\paragraph{Topology validity (5).}
+\texttt{SELF\_EDGE}, \texttt{TARGET\_NOT\_FOUND}, \texttt{SOURCE\_MISMATCH},
+\texttt{DUPLICATE\_PROPOSAL}, \texttt{TARGET\_ALREADY\_EXECUTED}.
+The last is a consequence of single execution (§\ref{sec:runtime}): a message to
+a node already running or finished provably cannot affect any output, so it is
+rejected rather than recorded. Without it an inert edge would appear in the
+graph and read as successful delivery.
+
+\paragraph{Policy and permission (4).}
+\texttt{POLICY\_DENIED}, \texttt{PERMISSION\_ESCALATION},
+\texttt{INVALID\_BUDGET\_SHARE}, \texttt{TOKEN\_BUDGET\_EXHAUSTED}.
+\texttt{PERMISSION\_ESCALATION} rejects a child requesting tools its parent
+lacks, so authority is monotonically non-increasing down the graph.
+
+\paragraph{Execution faults (3).}
+\texttt{FACTORY\_ERROR}, \texttt{INVALID\_EVENT\_STATE},
+\texttt{MALFORMED\_PROPOSAL}.
+
+\section{Event chain and checkpoint schemas}
+\label{app:schemas}
+
+\paragraph{Event chain.}
+Ten node-level event types are recorded: \texttt{NODE\_STARTED},
+\texttt{NODE\_COMPLETED}, \texttt{NODE\_FAILED}, \texttt{BUDGET\_EXCEEDED},
+\texttt{MODEL\_STARTED}, \texttt{MODEL\_COMPLETED}, \texttt{TOOL\_STARTED},
+\texttt{TOOL\_COMPLETED}, \texttt{TOOL\_REJECTED},
+\texttt{PROPOSAL\_CREATED}. Each event stores
+$\mathrm{sha256}$ of its canonicalised fields together with its predecessor's
+hash, from a genesis value of 64 zero characters. Input and output appear as
+hashes, never as text.
+
+A second chain at controller level records run lifecycle transitions
+(\texttt{run\_created}, \texttt{snapshot}, \texttt{dependency\_added},
+\texttt{execution\_settled}). Both chains route every hashed field through one
+shared helper, so recording and verification cannot drift apart --- a defect
+that would otherwise be invisible until a verification failure in production.
+
+\paragraph{Checkpoint v1.}
+Six keys: \texttt{chainHead}, \texttt{eventCount}, \texttt{events},
+\texttt{runId}, \texttt{schemaVersion}, \texttt{stateDigest}. Replay is a static
+function of the chain: it re-verifies the hash chain, a topology digest, and the
+snapshot's semantic invariants, and never constructs a model, runner or tool.
+
+We state a limit the design does not overcome. The chain detects accidental
+corruption and in-chain tampering, but it does not prove provenance: anyone able
+to recompute the chain can forge a consistent one. Cross-host deployment would
+need HMAC or KMS signing with a persisted head anchor.
+
+\paragraph{Checkpoint v2.}
+The same six keys byte-for-byte, with \texttt{schemaVersion} set to 2, plus a
+seventh \texttt{resumable} key carrying per-node specifications, inputs, tool
+names and reservations, the archived results of settled executions, and the
+enqueue sequence. A v2 document therefore verifies as a v1 document.
+
+Agent specifications are stored opaquely because the orchestrator package
+deliberately does not depend on the node package; resume takes a rehydration
+callback supplied by the one component that depends on both. Parsing is
+defensive: a 5\,MB cap, full-depth duplicate-key rejection, exact top-level
+key-set equality, and NaN/Infinity rejection.
+
+\section{Per-instance results}
+\label{app:perinstance}
+
+\begin{table}[h]
+\centering
+\caption{Quality and spawn rate per task, for the fully-enabled arms. Spawn
+rate is reported beside every quality figure for the reason given in
+§\ref{sec:results}: an arm whose orchestrator does not spawn is operationally
+identical to A1.}
+\label{tab:pertask}
+\begin{tabular}{lrrrrrr}
+\toprule
+ & \multicolumn{2}{c}{brief-storage} & \multicolumn{2}{c}{brief-consensus}
+ & \multicolumn{2}{c}{brief-compiler} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Arm & $q$ & spawn & $q$ & spawn & $q$ & spawn \\
+\midrule
+A1 & 0.729 & 0/6 & 0.542 & 0/6 & 0.667 & 0/6 \\
+A2 & 0.771 & 3/6 & 0.708 & 5/6 & 0.750 & 3/6 \\
+A3 & 0.833 & 3/6 & 0.525 & 2/5 & 0.800 & 2/5 \\
+A4 & 0.725 & 2/5 & 0.708 & 4/6 & 0.725 & 2/5 \\
+A5 & 0.812 & 3/6 & 0.771 & 3/6 & 0.708 & 3/6 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Task difficulty varies more than any arm effect: A1 ranges from 0.542 on
+brief-consensus to 0.729 on brief-storage, a spread of 0.188 against a pooled
+arm effect of 0.118. This is why all comparisons in §\ref{sec:results} are
+paired per instance rather than between means --- unpaired tests at this sample
+size would be dominated by which tasks landed in which group.
+
+The one apparent inversion, A3 scoring 0.525 on brief-consensus and below A1
+there, coincides with its lowest spawn rate on that task (2/5). It is consistent
+with the conditional finding rather than against it, though with $n = 5$ we
+would not read it as evidence either way.
 
 \section{Mechanisms considered and declined}
-\TODO{Learned topology optimiser; hidden-state residual connections;
-end-to-end RL credit assignment. Include the feasibility scores and the
-reasoning for declining each.}
+\label{app:declined}
+
+Three mechanisms appear in the surrounding literature and in our own design
+notes but are deliberately absent. We record them because declining them is a
+claim about scope that a reader should be able to check.
+
+\paragraph{Learned topology optimiser.}
+A component that proposes graph edits from observed reward, as in
+GPTSwarm~\citep{zhuge2024gptswarm} and G-Designer~\citep{zhang2024gdesigner}.
+Declined because the measurement problem had to be settled first. An optimiser
+trained against a biased signal optimises the bias --- had we built one before
+finding the root-only scoring defect (§\ref{sec:intro}), it would have learned
+to suppress spawning, and the resulting graphs would have looked like evidence
+for a conclusion that was an artifact.
+
+\paragraph{Hidden-state residual connections.}
+Declined as infeasible rather than unattractive, for the reasons in
+§\ref{sec:mechanisms}: black-box APIs expose no hidden states, agents share no
+representation, and text admits no addition operator. Implementing it would
+require self-hosted homogeneous models with a shared tokenizer and hidden
+dimension, plus differentiability through the graph --- a model-architecture
+programme rather than an orchestration one.
+
+\paragraph{End-to-end reinforcement learning for credit assignment.}
+Declined on the grounds that a good final answer does not establish that each
+participating agent contributed; an agent may restate its predecessor and still
+share the reward. We use leave-one-out role ablation and an interpretable EMA on
+role trust instead. This is also the honest reading of our own weight results:
+with no pairwise difference among A2--A5 reaching significance, we have no
+signal that would supervise an optimiser.
+
+We note the common thread. Each of these mechanisms needs a trustworthy reward
+or quality signal, and this paper's main empirical finding is how fragile that
+signal was --- eight infrastructure defects, one of which inverted the headline
+result. Building optimisers on top of a signal that required this much work to
+stabilise seemed premature.
 
 \end{document}
