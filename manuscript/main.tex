@@ -68,19 +68,80 @@ offline at zero API cost.
 \section{Introduction}
 \label{sec:intro}
 
-\TODO{1.25pp. The reproducibility gap in multi-agent LLM evaluation. Three
-claims: (i) conditional determinism --- the runtime contributes zero entropy;
-(ii) a fail-closed trust boundary in which agents propose and only the
-controller mutates the graph; (iii) budget parity by construction. Then preview
-the mechanism findings.}
+A claim of the form ``this agent topology outperforms that one'' carries an
+implicit premise: that the measured difference came from the topology. Three
+things make that premise hard to secure. Wall-clock concurrency determines the
+order in which agent results are merged, and if the merge is order-sensitive the
+final state depends on scheduling. Budget accounting differs between arms, so a
+configuration that spawns more agents may also have spent more, and the
+comparison silently becomes quality-per-unequal-budget. Partial failures are
+handled differently across runtimes --- dropped, retried, or propagated --- so
+an arm that fails more often can look better or worse for reasons unrelated to
+its topology.
 
-The claim in (i) needs stating precisely, because the obvious stronger version
-is false. At temperature $>0$ two live runs of the same configuration do not
-agree, and we do not claim they do. What we claim and verify is that the
-\emph{runtime} is not a source of variation: fixing the model's responses fixes
-the final snapshot digest exactly, under any concurrency limit and any
-completion order. All remaining entropy in an experiment is therefore
-attributable to the model, which is what makes a topology comparison meaningful.
+Our own experiments supplied an unplanned illustration. Eight separate
+infrastructure defects produced results that read as ``multi-agent arms perform
+worse'': a context role the endpoint rejected, child specifications missing a
+required field, children inheriting a shorter timeout than their parent, an
+output-length cap below what the task needed, a per-minute token quota, retry
+backoff accumulating past a node deadline, a client library's non-configurable
+header timeout, and a scorer that read only the root agent's text. Each hurt the
+arms with more agents and more turns first, because those arms reach any new
+ceiling first. The failures therefore arrived sorted by arm complexity --- which
+is exactly the shape a real topology effect would have. One of them, the
+root-only scorer, would have inverted our headline finding: re-scoring the same
+transcripts under the corrected rule moved the single-agent arm by $0.000$ and
+every spawning arm by $+0.155$ to $+0.396$.
+
+We take the position that the instrument must be fixed before the measurement
+means anything, and that fixing it is a contribution in its own right. We
+present an agent-graph runtime with three properties.
+
+\paragraph{The runtime contributes zero entropy.}
+This needs stating precisely, because the obvious stronger version is false. At
+temperature $>0$ two live runs of the same configuration do not agree, and we do
+not claim they do. What we claim and verify is that the \emph{runtime} is not a
+source of variation: fixing the model's responses fixes the final snapshot
+digest exactly, under any concurrency limit and any completion order
+(Theorem~\ref{thm:order}). All remaining entropy is attributable to the model,
+which is what makes a topology comparison meaningful. Across 118 live cells
+every group of repeated runs agreed on its digest, and recorded transcripts
+replay to their live digests bit-exactly.
+
+\paragraph{Agents propose; only the controller mutates.}
+A model's graph operations are proposals, re-validated at a single ingestion
+boundary and materialised by the controller. Ingestion is fail-closed and
+all-or-nothing: an invalid result adopts none of its proposals. An agent cannot
+drive the graph into a state the policy forbids, so topology stays inside the
+configured envelope regardless of what the model emits.
+
+\paragraph{Budget parity holds by construction.}
+All arms share one token ceiling, enforced by a reservation ledger on every
+termination path (Theorem~\ref{thm:budget}) rather than by discarding overspent
+runs afterwards. The single-agent baseline is not a cheaper control; it is the
+same budget spent without decomposing.
+
+Using the runtime as an instrument, we measure what agent-graph mechanisms buy
+at matched budget. Decomposition helps and costs far more than it returns: every
+spawning arm beats the single-agent baseline, but for $2.3$--$3.1\times$ the
+tokens, and the cost-weight crossover sits at $\lambda \approx 0.01$, so the
+baseline wins under almost any non-zero cost weighting. Among the communication
+mechanisms, declarative data flow carries the effect and relevance routing does
+not: disabling \texttt{depends\_on} propagation collapses A5's advantage from
+$+0.118$ to a non-significant $+0.047$, while disabling relevance-routed
+delivery barely moves it. And the effect is conditional on the model choosing to
+decompose --- on the tier that declined to delegate in 95\% of cells, no arm
+beat the baseline.
+
+That last result is why we report spawn rate beside every quality number. Where
+the orchestrator does not spawn, a topology arm is operationally identical to the
+baseline, and ``no topology effect'' becomes indistinguishable from ``this task
+did not need topology''. Task decomposability is a precondition for the question
+being falsifiable, not a detail of experimental setup.
+
+All experiments ship with replay transcripts, so every number here can be
+re-derived offline at zero API cost. We used that capability ourselves to
+quantify the scorer bias above.
 
 \section{Related work}
 \label{sec:related}
@@ -132,11 +193,42 @@ produced in a run. The final snapshot is independent of the order in which
 runners complete and of the concurrency limit.
 \end{theorem}
 
-\TODO{Proof sketch: merge iterates outcomes sorted by \texttt{execution.sequence},
-a value assigned inside the critical section; all records are immutable and
-replaced rather than mutated in place; all mutators are deterministic functions
-of (state, result) with identifiers derived by hashing. Hence the merge is a
-fixed fold over a fixed sequence.}
+\begin{proof}[Proof sketch]
+The merge phase is a fold over the claimed executions, and we show both the
+sequence folded over and the step function are independent of completion order.
+
+\emph{The sequence is fixed before execution begins.} Each claim receives
+\texttt{execution.sequence} from a counter incremented inside the critical
+section of the freeze phase, so sequence numbers are assigned by frontier
+position, not by when a runner returns. The merge sorts outcomes by that field
+before applying any of them. Completion order therefore influences only when an
+outcome becomes available, never where it sits in the fold.
+
+\emph{Each step is a deterministic function of (state, result).} Records are
+immutable: mutators replace whole records through factories rather than
+assigning fields, so no step can observe a partially-updated predecessor.
+Identifiers are derived by hashing their semantic parts
+(\texttt{deriveControllerId}), not from counters that concurrent execution could
+interleave. Proposals within a result are processed in the fixed order spawn,
+message, skip. There are no reads of wall-clock time or randomness on this path.
+
+\emph{The frontier is a function of state.} Ready nodes are ordered by
+$(-\mathit{priority}, \mathit{nodeId})$, a total order because node identifiers
+are unique, so the next super-step's claim sequence is itself determined by the
+merged state rather than by scheduling.
+
+By induction over super-steps, the state entering each merge is fixed, the
+sequence folded over is fixed, and each step is deterministic; hence the final
+snapshot is fixed. The concurrency limit changes only how many runners are
+in flight, which the argument never uses.
+\end{proof}
+
+The tie-break deserves emphasis because it is the part that can silently stop
+being load-bearing. With distinct priorities the ordering is determined by
+priority alone and the identifier comparison never executes, so a test built on
+distinct-priority nodes will pass even if the tie-break is replaced by a random
+comparator. We verified the property by mutation testing with equal priorities,
+where removing the deterministic tie-break makes the digests diverge.
 
 \begin{theorem}[Budget parity]
 \label{thm:budget}
@@ -145,8 +237,47 @@ runner exception, cancellation, and dependency block --- committed tokens never
 exceed the configured limit, and reserved tokens return to zero at convergence.
 \end{theorem}
 
-\TODO{Proof sketch: enumerate the six paths against the ledger transitions
-(reserve / claim / commit-success / commit-full / release).}
+\begin{proof}[Proof sketch]
+The ledger holds two counters, $C$ (committed) and $R$ (reserved), and
+maintains the invariant $C + R \leq L$ for the configured limit $L$.
+
+Tokens enter the ledger only at node creation, which reserves a worst-case
+allocation: the reservation is rejected unless $C + R + r \leq L$, so the
+invariant is preserved on entry. Claiming a node for execution moves its
+reservation out of the per-node map but leaves $R$ unchanged --- the tokens stay
+reserved while the runner is in flight --- so claiming cannot violate the
+invariant either.
+
+Every reservation then leaves the ledger by exactly one of three transitions,
+and each decreases $R$ by the full reserved amount $r$:
+\begin{description}
+\item[commit-success] $R \mathrel{-}= r$; $C \mathrel{+}= \min(\max(a, 0), r)$
+      for actual usage $a$. The clamp is what makes this safe: a model
+      over-reporting usage cannot commit more than was reserved, and the unused
+      remainder is released implicitly.
+\item[commit-full] $R \mathrel{-}= r$; $C \mathrel{+}= r$. Used for structured
+      failure, invalid results, and runner exceptions --- work was performed,
+      so the whole reservation is charged.
+\item[release] $R \mathrel{-}= r$; $C$ unchanged. Used for cancellation and
+      dependency blocking, where the node never ran.
+\end{description}
+In each case the change to $C + R$ is at most zero, so the invariant survives.
+The six termination paths of the theorem map onto these three: success to
+commit-success; structured failure, invalid result and runner exception to
+commit-full; cancellation and dependency block to release.
+
+For the second claim, convergence requires every node to be in a terminal state
+or to have never been reserved. Each reserved node reaches exactly one of the
+three transitions above, each of which subtracts its full $r$ from $R$, and
+reservations are per-node and never shared. Hence $R = 0$ at convergence.
+\end{proof}
+
+Two consequences matter for the experiments. Because an invalid result commits
+its entire reservation rather than releasing it, a model cannot gain budget by
+emitting proposals that fail validation. And because the limit is enforced on
+entry rather than checked afterwards, arms are comparable without discarding
+overspent runs --- a filter that would otherwise correlate with arm complexity,
+since the arms that spawn more are the ones that would overspend.
 
 \subsection{Audit chain and resumability}
 
