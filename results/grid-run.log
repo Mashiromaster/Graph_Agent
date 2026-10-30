@@ -7,11 +7,52 @@ tokens : ~2.65M
 wall   : ~9.9 h serial (solo 96s, spawning 313s; endpoint rejects concurrency)
   small: ~1.32M tokens
   mid: ~1.32M tokens
-resuming: 78 cells already recorded
-[1/126] A5+fanin+deliv brief-consensus s2 small q=0.63 n=1 tok=10948 | eta 339min
-[2/126] A2+fanin+deliv brief-consensus s1 mid q=0.75 n=4 tok=46650 | eta 640min
-[3/126] A2+fanin+deliv brief-compiler s2 mid q=0.00 n=4 tok=48321 | eta 1022min
-[4/126] A3+fanin+deliv brief-storage s0 mid q=0.88 n=4 tok=45710 | eta 1144min
-[5/126] A3+fanin+deliv brief-storage s1 mid q=0.00 n=1 tok=120000 | eta 2337min
-[6/126] A3+fanin+deliv brief-storage s2 mid q=0.00 n=3 tok=62309 | eta 5421min
-[7/126] A3+fanin+deliv brief-consensus s0 mid q=0.00 n=1 tok=120000 | eta 6948min
+resuming: 81 cells already recorded
+[1/126] A2+fanin+deliv brief-compiler s2 mid q=1.00 n=4 tok=38154 | eta 552min
+[2/126] A3+fanin+deliv brief-storage s1 mid q=0.88 n=4 tok=21276 | eta 714min
+[3/126] A3+fanin+deliv brief-storage s2 mid q=0.75 n=3 tok=28765 | eta 782min
+[4/126] A3+fanin+deliv brief-consensus s0 mid q=0.50 n=4 tok=32568 | eta 831min
+[5/126] A3+fanin+deliv brief-consensus s1 mid q=0.00 n=1 tok=120000 | eta 789min
+[6/126] A3+fanin+deliv brief-consensus s2 mid q=0.75 n=4 tok=26898 | eta 1269min
+[7/126] A3+fanin+deliv brief-compiler s0 mid q=1.00 n=4 tok=37017 | eta 1211min
+[8/126] A3+fanin+deliv brief-compiler s1 mid q=0.88 n=4 tok=49962 | eta 1221min
+[9/126] A3+fanin+deliv brief-compiler s2 mid q=0.00 n=4 tok=90664 | eta 1385min
+[10/126] A4+fanin+deliv brief-storage s0 mid q=0.75 n=4 tok=38168 | eta 1349min
+[11/126] A4+fanin+deliv brief-storage s1 mid q=0.00 n=4 tok=76896 | eta 1322min
+[12/126] A4+fanin+deliv brief-storage s2 mid q=1.00 n=4 tok=44334 | eta 1382min
+[13/126] A4+fanin+deliv brief-consensus s0 mid q=0.63 n=4 tok=26855 | eta 1340min
+[14/126] A4+fanin+deliv brief-consensus s1 mid q=0.88 n=4 tok=26243 | eta 1288min
+[15/126] A4+fanin+deliv brief-consensus s2 mid q=0.75 n=4 tok=29484 | eta 1292min
+[16/126] A4+fanin+deliv brief-compiler s0 mid q=0.88 n=4 tok=42093 | eta 1290min
+[17/126] A4+fanin+deliv brief-compiler s1 mid q=0.88 n=4 tok=46042 | eta 1264min
+[18/126] A4+fanin+deliv brief-compiler s2 mid q=0.00 n=1 tok=120000 | eta 1371min
+[19/126] A5+fanin+deliv brief-storage s0 mid q=1.00 n=4 tok=57127 | eta 1562min
+[20/126] A5+fanin+deliv brief-storage s1 mid q=0.88 n=4 tok=43534 | eta 1539min
+[21/126] A5+fanin+deliv brief-storage s2 mid q=0.75 n=4 tok=23525 | eta 1488min
+[22/126] A5+fanin+deliv brief-consensus s0 mid q=0.88 n=4 tok=39583 | eta 1447min
+[23/126] A5+fanin+deliv brief-consensus s1 mid q=0.75 n=4 tok=42212 | eta 1418min
+[24/126] A5+fanin+deliv brief-consensus s2 mid q=0.88 n=4 tok=34775 | eta 1387min
+[25/126] A5+fanin+deliv brief-compiler s0 mid q=1.00 n=4 tok=41070 | eta 1355min
+[26/126] A5+fanin+deliv brief-compiler s1 mid q=0.75 n=4 tok=47314 | eta 1334min
+[27/126] A5+fanin+deliv brief-compiler s2 mid q=0.88 n=4 tok=47745 | eta 1313min
+[28/126] A5-fanin+deliv brief-storage s0 mid q=0.88 n=4 tok=41670 | eta 1288min
+[29/126] A5-fanin+deliv brief-storage s1 mid q=0.75 n=4 tok=20522 | eta 1259min
+[30/126] A5-fanin+deliv brief-storage s2 mid q=1.00 n=3 tok=34402 | eta 1227min
+[31/126] A5-fanin+deliv brief-consensus s0 mid q=0.63 n=4 tok=26584 | eta 1199min
+[32/126] A5-fanin+deliv brief-consensus s1 mid q=0.75 n=4 tok=25192 | eta 1168min
+[33/126] A5-fanin+deliv brief-consensus s2 mid q=0.00 n=1 tok=120000 | eta 1197min
+[34/126] A5-fanin+deliv brief-compiler s0 mid q=0.00 n=1 tok=120000 | eta 1169min
+[35/126] A5-fanin+deliv brief-compiler s1 mid q=1.00 n=4 tok=76078 | eta 1216min
+[36/126] A5-fanin+deliv brief-compiler s2 mid q=0.88 n=4 tok=35182 | eta 1208min
+[37/126] A5+fanin-deliv brief-storage s0 mid q=0.88 n=4 tok=36596 | eta 1186min
+[38/126] A5+fanin-deliv brief-storage s1 mid q=0.88 n=4 tok=41408 | eta 1167min
+[39/126] A5+fanin-deliv brief-storage s2 mid q=0.63 n=4 tok=32529 | eta 1143min
+[40/126] A5+fanin-deliv brief-consensus s0 mid q=0.88 n=4 tok=37347 | eta 1120min
+[41/126] A5+fanin-deliv brief-consensus s1 mid q=0.75 n=4 tok=46885 | eta 1104min
+[42/126] A5+fanin-deliv brief-consensus s2 mid q=0.88 n=4 tok=56561 | eta 1089min
+[43/126] A5+fanin-deliv brief-compiler s0 mid q=0.00 n=1 tok=120000 | eta 1069min
+[44/126] A5+fanin-deliv brief-compiler s1 mid q=1.00 n=4 tok=62654 | eta 1100min
+[45/126] A5+fanin-deliv brief-compiler s2 mid q=0.00 n=4 tok=76729 | eta 1099min
+
+=== summary ===
+attempted 45, succeeded 45, skipped 81

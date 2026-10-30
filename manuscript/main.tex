@@ -3,13 +3,14 @@
 % 投稿目标:TMLR。正文须 ≤12 页(不含参考文献与附录)——这是把审稿期从 4 周
 % 压到 2 周的硬条件,见 jmlr.org/tmlr/reviewer-guide.html。
 %
-% 本文件刻意不内联 TMLR 样式:投稿前须从 jmlr.org/tmlr/ 下载官方 tmlr.sty
-% 并放到本目录。格式违规是 desk reject 的理由,不要用自制样式凑。
+% 官方 tmlr.sty / fancyhdr.sty / tmlr.bst 已随稿存放在本目录。
 %
-% 编译:latexmk -pdf main.tex   (本机当前无 LaTeX 工具链,见 README)
+% 编译:latexmk -pdf -bibtex main.tex   (需 /Library/TeX/texbin 在 PATH)
+% 必须跑完整循环:第一遍留下未定义引用,bibtex 跑完再来一遍才解析。
 %
-% ⚠ 所有标为 \TODO 的数字尚未测得。实况实验需要 API 凭据;在跑完之前
-%   不得填入任何占位数值——编造的数字即便标注"示意"也会污染后续写作。
+% §6 的数字全部来自 results/records.jsonl 的 118 格实况数据,可用
+% results/transcripts/ 离线复算。其余 \TODO 是待撰写的论述段落,
+% 不是待填的数字。
 
 \documentclass[10pt]{article}
 
@@ -241,6 +242,7 @@ closing the context-injection token budget rather than by branching, so control
 and treatment traverse identical code paths and differ only in available budget.
 
 \subsection{Tasks, scoring, and budget parity}
+\label{sec:graph-scoring}
 
 Scorers are deterministic pure functions. This is load-bearing rather than
 fastidious: variance is a reported metric, so a stochastic scorer would mix
@@ -262,53 +264,188 @@ sweep $\lambda/\mu/\nu$ and report whether conclusions survive the sweep.
 
 \begin{table}[t]
 \centering
-\caption{Tiered experiment matrix. The frontier tier is a deliberate
-confirmatory subset, reported here rather than left for a reader to infer from
-row counts.}
+\caption{Experiment matrix as run. Coverage is reported here rather than left
+for a reader to infer from row counts.}
 \label{tab:matrix}
-\begin{tabular}{llll}
+\begin{tabular}{lllll}
 \toprule
-Tier & Conditions & Seeds & Cells \\
+Tier & Conditions & Seeds & Cells & Spawn rate \\
 \midrule
-small    & 7 (5 arms $+$ 2 ablations) & 5 & \TODO{} \\
-mid      & 7                          & 5 & \TODO{} \\
-frontier & 3 (A1, A3, A5)             & 3 & \TODO{} \\
+small & 7 (5 arms $+$ 2 ablations) & 3 & 63 & 3/63 (5\%) \\
+mid   & 7                          & 3 & 55 & 46/55 (84\%) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+Three tasks $\times$ three seeds give nine pairs per condition, which the pilot
+variance ($\mathrm{sd} \approx 0.15$ on paired differences) puts at a detectable
+effect of $\delta \approx 0.14$ at $\alpha = .05$, power $.80$. 118 cells
+completed successfully and consumed 2.48M tokens.
+
+\paragraph{The frontier tier is excluded, and why.}
+A third tier was planned and attempted, then dropped because it could not be
+compared fairly through the available endpoint rather than because of a
+configuration choice we could have made differently. Reasoning tokens consumed
+80\% of that tier's output budget against 3\% for the small tier; matching the
+small tier's prose volume needed roughly 32{,}000 output tokens, which is where
+truncation began, and 48{,}000 returned a server-side gateway timeout. Including
+a tier whose zero scores come from truncation would have produced the finding
+``stronger models do worse at multi-agent tasks'' --- an artifact. Cross-model
+claims in this paper therefore span two tiers.
+
 \section{Results}
 \label{sec:results}
 
-\TODO{2.75pp. No numbers may be written here until the live experiments have
-run. Each subsection below states what will be reported.}
-
 \subsection{Determinism validation}
 
-\TODO{Replay digest match rate --- must be 100\%; order-shuffle invariance
-across concurrency limits and completion orders. A rate below 100\% would mean
-an undiscovered source of nondeterminism and would invalidate
-Theorem~\ref{thm:order}; we report it as a stop-the-line check rather than as a
-summary statistic.}
+Across all 118 cells, every group of repeated runs sharing a condition, task,
+seed and model produced an identical snapshot digest: 118 of 118 groups agree,
+zero inconsistencies. Recorded transcripts replayed offline reproduce their live
+digests bit-exactly under varying concurrency limits and artificially shuffled
+completion orders.
 
-\subsection{Weights}
+We report this as a stop-the-line check rather than a summary statistic. A rate
+below 100\% would mean an undiscovered source of nondeterminism and would
+invalidate Theorem~\ref{thm:order}; there would be no point reporting the
+mechanism results that follow, because the runtime would be contributing
+variance of its own.
 
-\TODO{priority vs budget\_share vs trust, ablated. Paired per-instance
-comparisons with confidence intervals, not bare mean differences.}
+\subsection{Decomposition helps, and costs three times as much}
 
-\subsection{Messages and fan-in}
+\begin{table}[t]
+\centering
+\caption{Quality and cost by condition. Quality scores the whole graph's
+output; see \S\ref{sec:graph-scoring}. Intervals are 95\% CIs on the mean.
+$\Delta$ is the paired per-instance difference against A1 on the same task,
+seed and model.}
+\label{tab:main}
+\begin{tabular}{lrrrrl}
+\toprule
+Condition & $n$ & Quality & Tokens & $\Delta$ vs A1 & \\
+\midrule
+A1 single agent      & 18 & $0.646 \pm 0.066$ & 8{,}449  & ---               & baseline \\
+A2 equal-weight tree & 18 & $0.743 \pm 0.073$ & 25{,}825 & $+0.097 \pm 0.078$ & sig. \\
+A3 weighted tree     & 16 & $0.727 \pm 0.093$ & 19{,}834 & $+0.086 \pm 0.091$ & n.s. \\
+A4 skip-connection   & 16 & $0.719 \pm 0.072$ & 22{,}802 & $+0.070 \pm 0.092$ & n.s. \\
+A5 dynamic graph     & 18 & $0.764 \pm 0.068$ & 25{,}172 & $+0.118 \pm 0.092$ & sig. \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\TODO{delivery on/off, fan-in on/off, skip on/off; skip-utilisation rate.}
+Table~\ref{tab:main} shows every spawning arm above the single-agent baseline,
+with A5 highest at $+0.118$. Two of the four differences clear their confidence
+intervals. The arms do not separate from each other: the spread among A2--A5
+(0.719--0.764) is smaller than the gap from A1 to any of them, and no pairwise
+difference between spawning arms is significant at this sample size. The
+evidence supports ``decomposition helps''; it does not support any ranking among
+the specific graph mechanisms.
 
-\subsection{Robustness to an injected faulty agent}
+Cost moves far more than quality. Spawning arms spend 2.3--3.1$\times$ the
+single-agent budget for a 11--18\% relative quality gain, and the weight
+sweep locates the crossover at $\lambda \approx 0.01$: with cost weighted at
+zero A5 wins, and at any $\lambda \geq 0.01$ --- one percent of a quality point
+per thousand tokens --- A1 wins and keeps winning through $\lambda = 0.2$. The
+Pareto front over quality and cost retains four non-dominated conditions (A1,
+A3, A5 without delivery, A5), so this is a genuine trade-off rather than one arm
+dominating. We therefore treat the front as the primary result and $R$ as a
+summary, because no defensible argument picks a single $\lambda$.
 
-\TODO{Contamination of the final answer by a confidently-wrong role, with and
-without the minimum-trust gate.}
+\subsection{Fan-in carries the effect; relevance routing does not}
 
-\subsection{Cross-model stability}
+\begin{table}[t]
+\centering
+\caption{Ablating A5's two context channels.}
+\label{tab:ablation}
+\begin{tabular}{lrrl}
+\toprule
+Condition & Quality & $\Delta$ vs A1 & \\
+\midrule
+A5 full               & $0.764$ & $+0.118 \pm 0.092$ & sig. \\
+A5, delivery disabled & $0.742$ & $+0.109 \pm 0.089$ & sig. \\
+A5, fan-in disabled   & $0.695$ & $+0.047 \pm 0.092$ & n.s. \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\TODO{Whether effects replicate across model scales. An effect that appears on
-one model only is reported as model-specific --- a finding, not a failure.}
+Disabling relevance-routed delivery costs almost nothing ($+0.118 \to +0.109$,
+still significant). Disabling \texttt{depends\_on} result propagation collapses
+the effect to $+0.047$ and it stops clearing its interval.
+
+So the mechanism that matters is declarative data flow --- a child seeing a
+dependency's actual output --- not lexical relevance routing of optional
+evidence. This is measurable only because the two were separated: an earlier
+design gated both through the same relevance score, which made fan-in fail
+whenever a stemming mismatch drove the score to zero. Had they stayed fused
+behind a single ``communication'' switch, the ablation would have reported one
+blended number and attributed the effect to the wrong thing.
+
+The null result on routing should be read against its implementation: relevance
+is lexical IDF cosine, deliberately not semantic (\S\ref{sec:mechanisms}). It is
+a lower bound on what routing could achieve, so this is evidence against
+\emph{this} router, not against context routing in general.
+
+\subsection{The effect is conditional on the model choosing to decompose}
+
+This is the most consequential result in the dataset, and it is a conditional
+one.
+
+\begin{table}[t]
+\centering
+\caption{Paired A1 $\to$ A5 difference, split by tier, alongside how often the
+orchestrator actually spawned children.}
+\label{tab:bytier}
+\begin{tabular}{lrrl}
+\toprule
+Tier & Spawn rate & $\Delta$ (A1 $\to$ A5) & \\
+\midrule
+small & 3/63 \phantom{0}(5\%) & $+0.042 \pm 0.129$ & n.s. \\
+mid   & 46/55 (84\%)          & $+0.194 \pm 0.116$ & sig. \\
+\midrule
+both  & 49/118 (42\%)         & $+0.118 \pm 0.092$ & sig. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On the small tier \emph{no} arm beats A1: the paired differences are $+0.000$,
+$+0.042$, $+0.014$ and $+0.042$ for A2--A5, none significant. On the mid tier
+every arm does. The dividing variable is not the model's capability but its
+\emph{behaviour}: the small tier declined to delegate in 95\% of cells, judging
+--- in its own words --- that decomposition would add overhead without reducing
+risk. An arm whose orchestrator does not spawn is operationally identical to A1,
+so the small tier largely measures A1 against itself.
+
+Grouping by behaviour rather than by tier makes this direct. Among spawning-arm
+cells, those that actually spawned average $0.834$ quality ($n = 49$) against
+$0.635$ for those that did not ($n = 51$) --- a gap of $0.199$, larger than any
+between-arm difference we measured.
+
+Two consequences follow. First, the pooled $+0.118$ in Table~\ref{tab:main} is
+an average over a population that is 42\% treated, and it understates the effect
+where decomposition occurs while overstating it where it does not. Second, task
+decomposability and the model's willingness to exploit it are preconditions for
+topology effects being measurable at all; without them, ``no topology effect''
+is indistinguishable from ``this task did not need topology'' and is not
+falsifiable. We report spawn rate alongside every quality number for this
+reason.
+
+We also note what this costs the cross-model claim. With two tiers and the
+effect present in one, we cannot separate ``mid-specific'' from
+``spawning-specific'', since the tiers differ in both scale and spawn rate. The
+honest statement is that the effect tracks spawn rate, and that we lack the tiers
+to decide whether anything else tracks scale.
+
+\subsection{Not measured}
+
+Two planned results are absent. Weight mechanisms (\texttt{priority} versus
+\texttt{budget\_share} versus role trust) are not separable in this dataset: no
+pairwise difference among A2--A5 is significant, and A2 --- which forces uniform
+weights --- is statistically indistinguishable from A3, which lets the model
+choose them. We can report that disjoint weight semantics are implementable and
+auditable, not that any particular weighting helps.
+
+The injected-faulty-agent arm was built (\S\ref{sec:mechanisms}) but not run,
+because the grid consumed the available quota. It needs no new mechanism, only
+compute.
 
 \section{Limitations and conclusion}
 \label{sec:limits}
