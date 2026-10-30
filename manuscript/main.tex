@@ -152,30 +152,128 @@ quantify the scorer bias above.
 \section{Related work}
 \label{sec:related}
 
-\TODO{1.0pp. Three paragraphs plus one compressed capability table.}
+\begin{table}[t]
+\centering
+\caption{Capabilities across representative systems. ``Runtime graph'' means
+the topology is built during execution rather than fixed beforehand;
+``order-invariant'' means the final state provably does not depend on
+completion order; ``budget parity'' means compared configurations share an
+enforced ceiling rather than being filtered afterwards.}
+\label{tab:related}
+\begin{tabular}{lccccc}
+\toprule
+ & Runtime & Learnable & Typed & Order- & Budget \\
+ & graph & topology & edges & invariant & parity \\
+\midrule
+LangGraph~\citep{langgraph}              & \checkmark & --- & --- & --- & --- \\
+AutoGen~\citep{wu2023autogen}            & \checkmark & --- & --- & --- & --- \\
+MetaGPT~\citep{hong2024metagpt}          & ---        & --- & --- & --- & --- \\
+CrewAI~\citep{crewai}                    & \checkmark & --- & --- & --- & --- \\
+CAMEL~\citep{li2023camel}                & ---        & --- & --- & --- & --- \\
+Swarm~\citep{openaiswarm}                & \checkmark & --- & --- & --- & --- \\
+\midrule
+GPTSwarm~\citep{zhuge2024gptswarm}       & --- & \checkmark & --- & --- & --- \\
+DyLAN~\citep{liu2024dylan}               & --- & \checkmark & --- & --- & --- \\
+AgentPrune~\citep{zhang2024agentprune}   & --- & \checkmark & --- & --- & --- \\
+G-Designer~\citep{zhang2024gdesigner}    & --- & \checkmark & --- & --- & --- \\
+AutoAgents~\citep{chen2023autoagents}    & \checkmark & --- & --- & --- & --- \\
+MacNet~\citep{qian2024macnet}            & --- & \checkmark & --- & --- & --- \\
+\midrule
+This work & \checkmark & --- & \checkmark & \checkmark & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-Recursive agent runtimes --- LangGraph~\citep{langgraph}, AutoGen's
-GraphFlow~\citep{wu2023autogen}, MetaGPT~\citep{hong2024metagpt},
-CrewAI~\citep{crewai}, CAMEL~\citep{li2023camel}, and
-Swarm~\citep{openaiswarm} --- organise agents as trees or predefined workflows
-and offer no learnable topology. Graph-optimisation work ---
-GPTSwarm~\citep{zhuge2024gptswarm}, DyLAN~\citep{liu2024dylan},
-AgentPrune~\citep{zhang2024agentprune}, G-Designer~\citep{zhang2024gdesigner},
-AutoAgents~\citep{chen2023autoagents}, and MacNet~\citep{qian2024macnet} ---
-treats the graph as optimisable but fixes it before execution. Neither camp
-offers determinism guarantees or budget parity across compared configurations,
-which is the gap this work addresses.
+Two lines of work bracket this one. \emph{Recursive runtimes} ---
+LangGraph~\citep{langgraph}, AutoGen's GraphFlow~\citep{wu2023autogen},
+MetaGPT~\citep{hong2024metagpt}, CrewAI~\citep{crewai},
+CAMEL~\citep{li2023camel}, Swarm~\citep{openaiswarm} --- let agents spawn agents
+at runtime, but the resulting structure is a tree or a predefined workflow with
+one undifferentiated edge kind, and nothing optimises it.
+\emph{Graph-optimisation work} --- GPTSwarm~\citep{zhuge2024gptswarm},
+DyLAN~\citep{liu2024dylan}, AgentPrune~\citep{zhang2024agentprune},
+G-Designer~\citep{zhang2024gdesigner}, MacNet~\citep{qian2024macnet} --- treats
+the topology as a learnable object, but fixes it before execution, so the graph
+cannot respond to what agents discover mid-run.
+AutoAgents~\citep{chen2023autoagents} generates roles at runtime without
+optimising the connections between them.
+
+Our mechanisms are not novel against that second group; weighted edges, pruning
+and context routing all appear there. What is absent from both groups is the
+measurement apparatus. None of these systems claims that its final state is
+independent of completion order, and none enforces a shared budget ceiling
+across the configurations it compares --- the two properties that decide whether
+a reported topology difference is attributable to topology. Our empirical
+findings are also mostly consonant with theirs rather than competing:
+AgentPrune's result that pruning edges preserves quality while cutting cost sits
+naturally beside our finding that the arms do not separate from each other while
+costing $2.3$--$3.1\times$ the baseline.
+
+The typed-edge column marks a smaller contribution that turned out to matter.
+Separating scheduling edges from information edges, and mandatory payloads from
+discretionary ones, is what makes §\ref{sec:results}'s ablation able to
+attribute the effect to declarative data flow rather than to ``communication''
+in general.
 
 \section{Runtime model and determinism}
 \label{sec:runtime}
 
-\TODO{2.5pp.}
-
 \subsection{Attributed graph over time}
 
-\TODO{Formalise $G_t = (V_t, E_t, X_t, W_t)$; four typed edge kinds and why a
-single edge type is insufficient; cycle unrolling to
-$(\mathrm{agent\_id}, \mathrm{round}, \mathrm{invocation\_id})$.}
+A run is a sequence of graphs $G_t = (V_t, E_t, X_t, W_t)$ indexed by super-step
+$t$, where $V_t$ are agent nodes, $E_t \subseteq V_t \times V_t$ carry a type
+label, $X_t$ assigns each node its input context, and $W_t$ assigns scalars to
+nodes and edges. The sequence is monotone in $V$ and $E$: nodes and edges are
+only added, never removed, so the graph doubles as an execution trace and the
+audit chain can record state transitions rather than deletions.
+
+\paragraph{Four edge types, not one.}
+Edges differ along two independent axes, and collapsing them loses the
+distinction the experiments need:
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+Type & Triggers execution & Carries payload & Payload gated by \\
+\midrule
+\texttt{spawn}        & yes & parent's instructions   & --- \\
+\texttt{depends\_on}  & yes & source's actual output  & nothing (mandatory) \\
+\texttt{message}      & no  & proposed content        & relevance, trust \\
+\texttt{skip\_context}& no  & ancestor's output       & relevance, trust, gate \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\texttt{spawn} and \texttt{depends\_on} gate \emph{scheduling} --- a node is
+ready only when its dependencies have succeeded --- while \texttt{message} and
+\texttt{skip\_context} gate \emph{information} without affecting readiness. A
+single fused edge type would force every information flow to also be a
+scheduling constraint, which rules out the sibling-to-sibling and
+ancestor-to-descendant deliveries that §\ref{sec:results} ablates.
+
+The second axis is whether the payload is discretionary. \texttt{depends\_on}
+is a declaration by the graph author that the target must see the source's
+output; a relevance score has no standing to veto it. The other two carry
+optional evidence, which is exactly what routing should filter. Our results turn
+on this split: the mandatory channel carries the measured effect and the
+discretionary one does not. We found the distinction the hard way --- an earlier
+design gated both through the same relevance score, and fan-in silently
+delivered nothing whenever a stemming mismatch drove that score to zero.
+
+\paragraph{Cycles.}
+Agents may revisit each other, so the natural communication graph is cyclic,
+but execution must be a DAG for the merge order of Theorem~\ref{thm:order} to be
+well-defined. We unroll: a node identity is
+$(\mathit{agent\_id}, \mathit{round}, \mathit{invocation\_id})$, so a cycle
+$A \to B \to A$ materialises as $A_1 \to B_1 \to A_2$ with distinct nodes. The
+logical cycle is preserved in the trace while the executed graph stays acyclic,
+and node identifiers --- derived by hashing their parts --- stay unique without a
+counter that concurrency could interleave.
+
+A consequence worth stating because it shapes §\ref{sec:mechanisms}: under this
+model a node executes exactly once and never re-enters. Anything that would
+require re-entry, such as a node revising its output after reading a child's,
+has to be expressed as a new node rather than a second visit.
 
 \subsection{Proposals and the trust boundary}
 
@@ -287,14 +385,46 @@ since the arms that spawn more are the ones that would overspend.
 
 \subsection{Audit chain and resumability}
 
-\TODO{SHA-256 chains store digests only, never plaintext. Checkpoint v1 is pure
-snapshot replay; v2 adds a resumable slice so completed nodes replay from an
-archive without re-running or re-billing.}
+Every run appends to a hash chain: each event stores the SHA-256 of its own
+canonicalised fields together with its predecessor's hash, starting from a fixed
+genesis value. Verification recomputes the chain, so any edit to a recorded event
+invalidates every hash after it.
+
+The chain stores \emph{digests only}, never plaintext. A node's event records the
+hash of its input and output rather than the text, and the controller's events
+record state transitions rather than content. This is what lets the audit trail
+be published alongside a paper without publishing the prompts and completions,
+and it is also why delivered message content is kept outside the snapshot: a
+message edge stores $\mathrm{sha256}(\mathit{content})$, while the content
+itself reaches the target through a buffer that the snapshot projection does not
+include. Delivery therefore cannot perturb the state digest, which we rely on
+when claiming that adding delivery left the checkpoint tests byte-identical.
+
+\paragraph{Two checkpoint schemas.}
+Version 1 is pure snapshot replay: it carries the event chain and a state
+digest, and replay re-verifies the chain, a topology digest, and the snapshot's
+semantic invariants. It is a static function of the chain --- it never touches a
+model, a runner, or a tool --- so verifying a checkpoint costs nothing and
+cannot have side effects.
+
+Version 2 adds a resumable slice: per-node specifications, inputs, tool names
+and reservations, plus the archived results of completed executions. Its first
+six keys are byte-identical to v1, so a v2 checkpoint verifies as a v1
+checkpoint. On resume, completed nodes are trusted from the archive --- records
+rebuilt, results restored, no runner constructed, no reservation taken, no
+re-billing --- while a node interrupted mid-execution is reset to ready and
+re-runs. Resume is fail-closed: four pre-validations run before anything is
+constructed, including that reservations of incomplete nodes sum to the recorded
+reserved total, so a truncated or edited checkpoint is rejected rather than
+half-loaded.
+
+Resumability is not a convenience feature here. The grid in
+§\ref{sec:design} ran for days against a rate-limited endpoint and was
+interrupted repeatedly; without idempotent re-entry keyed on completed cells,
+each interruption would have cost the whole run.
 
 \section{Mechanisms under study}
 \label{sec:mechanisms}
-
-\TODO{2.0pp.}
 
 \subsection{Four disjoint scalars}
 
@@ -325,11 +455,51 @@ role ablation.
 
 \subsection{Typed context delivery}
 
-\TODO{Message injection, \texttt{depends\_on} result propagation (fan-in), skip
-gating, and the token knapsack. Explain the mandatory/discretionary split:
-\texttt{depends\_on} is declarative data flow that a lexical relevance score has
-no authority to veto, whereas messages and skip context are discretionary
-evidence subject to routing.}
+Context reaches a node at one point: the moment its frontier position is frozen,
+immediately before it runs. Three channels feed that point.
+
+\texttt{depends\_on} propagation supplies the source's \emph{actual output},
+taken from the archive of settled results. This is what turns a dependency edge
+from a pure scheduling barrier into a data-flow edge, and it is the mechanism
+that gives fan-in: a parent spawns $N$ workers plus a reducer with
+\texttt{depends\_on} edges from each, and the reducer sees all $N$ outputs. Under
+the single-execution model of §\ref{sec:runtime} there is no other way for a
+parent's work to reach a sibling, because by the time children run the parent is
+already terminal.
+
+Message delivery supplies proposed content to a target that has not yet run. A
+message to a node already running or finished is rejected rather than recorded,
+since it provably cannot influence any output; making that rejection explicit
+keeps ineffective communication visible in the decision log instead of leaving
+an inert edge that looks like successful delivery.
+
+Skip context supplies an ancestor's output to a descendant, gated by the
+proposal's \texttt{context\_gate}. Because the requesting node has by definition
+already run, a parent may request skip context on behalf of a child it spawned
+in the same result; otherwise every skip edge would be structurally dead on
+arrival.
+
+\paragraph{Routing and the token knapsack.}
+Discretionary deliveries are scored
+$s_{u \rightarrow v} = \mathit{priority}_u \cdot \mathrm{rel}(u, v) \cdot
+\mathit{trust}_{\mathrm{role}(u)} \cdot \mathit{gate}$, ranked, truncated to
+Top-$K$, then packed greedily against a token budget. Ties break on edge
+identifier so the selection is a total order, which Theorem~\ref{thm:order}
+requires. Mandatory deliveries bypass ranking and zero-score filtering but still
+charge the token budget --- otherwise a graph could evade budget parity by
+declaring dependencies.
+
+The minimum-trust gate is applied \emph{before} scoring and overrides the
+mandatory flag. An injected low-trust agent therefore cannot force its output
+into a descendant's context by declaring a dependency edge, which is the
+property the robustness arm was built to test.
+
+Relevance is a deterministic lexical IDF-weighted cosine over the run's own
+text. Embeddings are excluded deliberately: they would add a runtime dependency
+and, served remotely, place a source of nondeterminism at the centre of the
+zero-entropy claim. The cost is real and we report it as such --- lexical
+relevance is a lower bound on what routing can achieve, so the null result in
+§\ref{sec:results} bounds this router rather than context routing in general.
 
 Routing scores a candidate delivery as
 $s_{u \rightarrow v} = \mathrm{priority}_u \cdot \mathrm{rel}(u,v) \cdot
@@ -343,15 +513,31 @@ a null one.
 
 \subsection{Why black-box skip connections are semantic, not residual}
 
-\TODO{With black-box APIs there is no access to hidden states, so
-$h_{l+1} = F(h_l) + h_l$ is unavailable. What is achievable is a semantic skip:
-relevance filter, instruction isolation, structured summary, gating, and
-injection as evidence rather than as a system instruction.}
+Skip connections in a neural network add a tensor: $h_{l+1} = F(h_l) + h_l$,
+with addition well-defined because both operands inhabit the same hidden space.
+Behind a black-box API none of that holds. There are no hidden states to read,
+no shared representation across agents, and no addition operator on text. Work
+that calls agent-graph edges ``residual connections'' is using an analogy, and
+the analogy breaks precisely where it would do work: there is no identity path
+along which a signal passes unchanged.
+
+What is achievable is a \emph{semantic} skip, and we name it \texttt{skip\_context}
+rather than residual to avoid the implication. An ancestor's output is filtered
+for relevance, allocated a share of the target's context budget, and injected
+as \emph{evidence} rather than as instruction. That last step is a safety
+property, not a formatting choice: delivered content from another agent is
+untrusted input, so it is wrapped with its provenance --- source node, edge type,
+trust score --- and the node's own instructions remain the only system-level
+text. A delivery that arrived as a system instruction would let any agent in the
+graph rewrite any other agent's objective.
+
+Tensor-level residuals would require self-hosting homogeneous models, a shared
+tokenizer and hidden dimension, and end-to-end differentiability through the
+graph. That is a different research programme --- model architecture rather than
+orchestration --- and we do not attempt it.
 
 \section{Experimental design}
 \label{sec:design}
-
-\TODO{1.5pp.}
 
 \subsection{Arms and toggles}
 
@@ -661,6 +847,7 @@ shipping transcripts so that a reader who doubts a number can recompute it
 instead of trusting us.
 
 % tmlr.bst 而非 plainnat:官方样式自带 bst,混用会导致引用格式与模板不符。
+\label{marker:endbody}
 \bibliographystyle{tmlr}
 \bibliography{refs}
 
