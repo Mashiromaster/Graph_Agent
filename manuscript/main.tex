@@ -59,8 +59,14 @@ a budget ledger that enforces parity by construction rather than by post-hoc
 filtering. Treating the runtime as a measurement instrument, we then ask what
 agent-graph mechanisms actually buy at matched token budget, ablating weighted
 scheduling, budget allocation, cross-generation skip context, and message
-passing as independent toggles with everything else held bit-identical.
-\TODO{one-sentence summary of the empirical findings}
+passing as independent toggles with everything else held bit-identical. Across
+118 live cells, decomposition improves quality but costs $2.3$--$3.1\times$ the
+tokens, so the single-agent baseline wins under almost any non-zero cost
+weighting; of the communication mechanisms only declarative data flow carries
+the effect, with relevance-routed delivery indistinguishable from its absence;
+and the whole effect is conditional on the model electing to decompose: on the
+tier whose orchestrators declined to delegate in 94\% of eligible cells, no
+topology arm beat the baseline.
 All experiments ship with replay transcripts, so every number can be re-derived
 offline at zero API cost.
 \end{abstract}
@@ -130,8 +136,8 @@ mechanisms, declarative data flow carries the effect and relevance routing does
 not: disabling \texttt{depends\_on} propagation collapses A5's advantage from
 $+0.118$ to a non-significant $+0.047$, while disabling relevance-routed
 delivery barely moves it. And the effect is conditional on the model choosing to
-decompose --- on the tier that declined to delegate in 95\% of cells, no arm
-beat the baseline.
+decompose --- on the tier whose orchestrators declined to delegate in 94\% of
+eligible cells, no arm beat the baseline.
 
 That last result is why we report spawn rate beside every quality number. Where
 the orchestrator does not spawn, a topology arm is operationally identical to the
@@ -540,7 +546,7 @@ both  & 49/118 (42\%)         & $+0.118 \pm 0.092$ & sig. \\
 On the small tier \emph{no} arm beats A1: the paired differences are $+0.000$,
 $+0.042$, $+0.014$ and $+0.042$ for A2--A5, none significant. On the mid tier
 every arm does. The dividing variable is not the model's capability but its
-\emph{behaviour}: the small tier declined to delegate in 95\% of cells, judging
+\emph{behaviour}: the small tier declined to delegate in 94\% of eligible cells, judging
 --- in its own words --- that decomposition would add overhead without reducing
 risk. An arm whose orchestrator does not spawn is operationally identical to A1,
 so the small tier largely measures A1 against itself.
@@ -581,21 +587,78 @@ compute.
 \section{Limitations and conclusion}
 \label{sec:limits}
 
-Determinism is conditional on the model: we claim zero runtime entropy, not
-bit-identical live runs. Relevance is lexical rather than semantic, so routing
-results are a lower bound. Trust learning is cross-run and role-level, which
-follows from the single-shot node model and cannot be loosened without changing
-that model. Two task families are covered; the four families without
-deterministic judges are discussed in the appendix but not measured. No learned
-topology optimiser is included --- rule-based and statistical mechanisms only.
-Finally, the code-generation scorer executes model-generated code under
-process-level isolation (separate subprocess, blocked network and
-subprocess modules, wall-clock and memory limits, whitelisted environment,
-disposable working directory). This is process isolation, not a sandbox: the
-child runs as the invoking user. We state this plainly in the artifact rather
-than describing the setup as sandboxed.
+\paragraph{Scope of the determinism claim.}
+It is conditional on the model. We claim zero runtime entropy, not bit-identical
+live runs, and the distinction is load-bearing: a reader who takes the stronger
+reading will find it false at the first temperature-$0.7$ run.
 
-\TODO{Conclusion paragraph once results exist.}
+\paragraph{One task family, one effect size.}
+Measurements come from a single family of decomposable technical briefs, scored
+by keyword coverage. Keyword coverage rewards breadth of mechanism naming and is
+insensitive to whether the prose around each mechanism is correct, so it
+measures something narrower than quality. A code-generation family with
+unit-test scoring was built, including a sandboxed executor, but not run for
+lack of quota; the mathematics family was dropped after measurement showed the
+model declines to decompose arithmetic, which makes every arm identical to the
+baseline. Our effect sizes are therefore specific to tasks whose output volume
+exceeds one context window.
+
+\paragraph{Two tiers cannot separate scale from behaviour.}
+The effect appears on the mid tier and not the small tier, but those tiers differ
+in both capability and spawn rate (84\% against 5\%). We can say the effect
+tracks spawn rate; we cannot say whether anything independently tracks scale. A
+third tier was attempted and excluded (\S\ref{sec:design}), so this gap is known
+rather than overlooked.
+
+\paragraph{Mechanisms we could not separate.}
+No pairwise difference among A2--A5 is significant, so the weight results are
+null: A2, which forces uniform weights, is statistically indistinguishable from
+A3, which lets the model choose them. We report that disjoint weight semantics
+are implementable and auditable, not that any weighting helps. Relevance routing
+is lexical IDF cosine by design, so its null result bounds \emph{this} router
+rather than context routing generally. Trust learning is cross-run and
+role-keyed, which follows from the single-shot node model and cannot be loosened
+without changing it. No learned topology optimiser is included. The
+faulty-agent robustness arm is built but unrun.
+
+\paragraph{The code-generation scorer is process isolation, not a sandbox.}
+It executes model-generated code in a separate subprocess with network and
+subprocess modules blocked, wall-clock and memory limits, a whitelisted
+environment, and a disposable working directory. The child still runs as the
+invoking user. We state this plainly rather than describing the setup as
+sandboxed, because a reader reusing the artifact on untrusted payloads needs a
+container or VM instead.
+
+\subsection*{Conclusion}
+
+We set out to make agent-topology comparisons mean what they appear to mean. The
+runtime contributes zero entropy given fixed model responses, enforces budget
+parity by construction, and confines agents to proposals that a single ingestion
+boundary validates. Across 118 live cells those properties held: every group of
+repeated runs agreed on its snapshot digest, and recorded transcripts replay to
+their live digests bit-exactly.
+
+What the instrument then measured is less flattering to graph machinery than the
+literature's framing suggests. Decomposition helps --- every spawning arm beats
+the single-agent baseline --- but for $2.3$--$3.1\times$ the tokens, with the
+cost-weight crossover at $\lambda \approx 0.01$, and the arms do not separate
+from each other. Of the communication mechanisms, only declarative data flow
+carries the effect; relevance-routed delivery is indistinguishable from its
+absence. Most importantly, the effect is conditional on the model electing to
+decompose at all: where it declined, no topology arm beat the baseline, and
+cells that actually spawned outscored those that did not by more than any
+difference between arms.
+
+We think the methodological result is the more durable one. Eight infrastructure
+defects in this project produced data that read as ``multi-agent arms perform
+worse'', each because the arms with more agents and more turns reach any new
+ceiling first --- so the failures arrived sorted by arm complexity, the same
+shape a real topology effect has. One of them would have inverted our headline
+finding. Published without the instrument, any of them would have been a
+plausible, citable, wrong conclusion. That is the case for treating
+reproducibility infrastructure as a result rather than as plumbing, and for
+shipping transcripts so that a reader who doubts a number can recompute it
+instead of trusting us.
 
 % tmlr.bst 而非 plainnat:官方样式自带 bst,混用会导致引用格式与模板不符。
 \bibliographystyle{tmlr}
