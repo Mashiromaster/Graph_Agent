@@ -683,9 +683,10 @@ summary, because no defensible argument picks a single $\lambda$.
 
 
 Figure~\ref{fig:paired} isolates the two channels. Disabling
-relevance-routed delivery costs almost nothing ($+0.118 \to +0.109$,
-still significant). Disabling \texttt{depends\_on} result propagation collapses
-the effect to $+0.047$ and it stops clearing its interval.
+relevance-routed delivery barely moves the difference ($+0.118 \to +0.109$,
+$t$ from $2.52$ to $2.41$). Disabling \texttt{depends\_on} result propagation
+halves it to $+0.047$ and drops $t$ to $1.00$ --- the clearest separation in the
+dataset, on the same underpowered footing as everything else here.
 
 So the mechanism that matters is declarative data flow --- a child seeing a
 dependency's actual output --- not lexical relevance routing of optional
