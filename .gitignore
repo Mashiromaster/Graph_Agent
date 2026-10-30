@@ -29,3 +29,6 @@ manuscript/*.log
 manuscript/*.out
 manuscript/*.pdf
 manuscript/*.synctex.gz
+
+# 补充材料打包产物(由 scripts/package-supplementary.sh 生成)
+supplementary.zip
