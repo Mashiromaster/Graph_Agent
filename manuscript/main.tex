@@ -30,6 +30,8 @@
 \usepackage{amssymb}
 \usepackage{graphicx}
 \usepackage{xcolor}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 
 \newtheorem{theorem}{Theorem}
 \newtheorem{definition}{Definition}
@@ -41,6 +43,8 @@
 % TMLR 的 \author 用 \name / \email 配对,多作者间以 \AND 分隔。
 % 评审阶段 tmlr.sty 自动匿名化,此处内容不会显示;camera-ready 时填真实信息。
 \author{\name Anonymous \email anonymous@example.com}
+
+\input{figstyle}
 
 \begin{document}
 \maketitle
@@ -130,7 +134,7 @@ same budget spent without decomposing.
 Using the runtime as an instrument, we measure what agent-graph mechanisms buy
 at matched budget. Decomposition helps and costs far more than it returns: every
 spawning arm beats the single-agent baseline, but for $2.3$--$3.1\times$ the
-tokens, and the cost-weight crossover sits at $\lambda \approx 0.01$, so the
+tokens, and the cost-weight crossover sits at $\lambda \approx 0.007$, so the
 baseline wins under almost any non-zero cost weighting. Among the communication
 mechanisms, declarative data flow carries the effect and relevance routing does
 not: disabling \texttt{depends\_on} propagation collapses A5's advantage from
@@ -619,6 +623,8 @@ claims in this paper therefore span two tiers.
 \section{Results}
 \label{sec:results}
 
+\input{figbody}
+
 \subsection{Determinism validation}
 
 Across all 118 cells, every group of repeated runs sharing a condition, task,
@@ -655,8 +661,8 @@ A5 dynamic graph     & 18 & $0.764 \pm 0.068$ & 25{,}172 & $+0.118 \pm 0.092$ & 
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:main} shows every spawning arm above the single-agent baseline,
-with A5 highest at $+0.118$. Two of the four differences clear their confidence
+Table~\ref{tab:main} and Figure~\ref{fig:paired} show every spawning arm above
+the single-agent baseline, with A5 highest at $+0.118$. Two of the four differences clear their confidence
 intervals. The arms do not separate from each other: the spread among A2--A5
 (0.719--0.764) is smaller than the gap from A1 to any of them, and no pairwise
 difference between spawning arms is significant at this sample size. The
@@ -665,32 +671,19 @@ the specific graph mechanisms.
 
 Cost moves far more than quality. Spawning arms spend 2.3--3.1$\times$ the
 single-agent budget for a 11--18\% relative quality gain, and the weight
-sweep locates the crossover at $\lambda \approx 0.01$: with cost weighted at
-zero A5 wins, and at any $\lambda \geq 0.01$ --- one percent of a quality point
-per thousand tokens --- A1 wins and keeps winning through $\lambda = 0.2$. The
-Pareto front over quality and cost retains four non-dominated conditions (A1,
-A3, A5 without delivery, A5), so this is a genuine trade-off rather than one arm
+sweep locates the crossover at $\lambda \approx 0.007$ (Figure~\ref{fig:sweep}):
+with cost weighted at zero A5 wins, and past seven thousandths of a quality
+point per thousand tokens A1 wins and keeps winning through $\lambda = 0.2$. The
+Pareto front over quality and cost (Figure~\ref{fig:pareto}) retains four
+non-dominated conditions, so this is a genuine trade-off rather than one arm
 dominating. We therefore treat the front as the primary result and $R$ as a
 summary, because no defensible argument picks a single $\lambda$.
 
 \subsection{Fan-in carries the effect; relevance routing does not}
 
-\begin{table}[t]
-\centering
-\caption{Ablating A5's two context channels.}
-\label{tab:ablation}
-\begin{tabular}{lrrl}
-\toprule
-Condition & Quality & $\Delta$ vs A1 & \\
-\midrule
-A5 full               & $0.764$ & $+0.118 \pm 0.092$ & sig. \\
-A5, delivery disabled & $0.742$ & $+0.109 \pm 0.089$ & sig. \\
-A5, fan-in disabled   & $0.695$ & $+0.047 \pm 0.092$ & n.s. \\
-\bottomrule
-\end{tabular}
-\end{table}
 
-Disabling relevance-routed delivery costs almost nothing ($+0.118 \to +0.109$,
+Figure~\ref{fig:paired} isolates the two channels. Disabling
+relevance-routed delivery costs almost nothing ($+0.118 \to +0.109$,
 still significant). Disabling \texttt{depends\_on} result propagation collapses
 the effect to $+0.047$ and it stops clearing its interval.
 
@@ -710,7 +703,7 @@ a lower bound on what routing could achieve, so this is evidence against
 \subsection{The effect is conditional on the model choosing to decompose}
 
 This is the most consequential result in the dataset, and it is a conditional
-one.
+one (Figure~\ref{fig:conditional}).
 
 \begin{table}[t]
 \centering
@@ -737,10 +730,9 @@ every arm does. The dividing variable is not the model's capability but its
 risk. An arm whose orchestrator does not spawn is operationally identical to A1,
 so the small tier largely measures A1 against itself.
 
-Grouping by behaviour rather than by tier makes this direct. Among spawning-arm
-cells, those that actually spawned average $0.834$ quality ($n = 49$) against
-$0.635$ for those that did not ($n = 51$) --- a gap of $0.199$, larger than any
-between-arm difference we measured.
+Grouping by behaviour rather than tier makes this direct: among spawning-arm
+cells, those that spawned average $0.834$ ($n = 49$) against $0.635$ ($n = 51$),
+a gap larger than any between-arm difference we measured.
 
 Two consequences follow. First, the pooled $+0.118$ in Table~\ref{tab:main} is
 an average over a population that is 42\% treated, and it understates the effect
@@ -827,7 +819,7 @@ their live digests bit-exactly.
 What the instrument then measured is less flattering to graph machinery than the
 literature's framing suggests. Decomposition helps --- every spawning arm beats
 the single-agent baseline --- but for $2.3$--$3.1\times$ the tokens, with the
-cost-weight crossover at $\lambda \approx 0.01$, and the arms do not separate
+cost-weight crossover at $\lambda \approx 0.007$, and the arms do not separate
 from each other. Of the communication mechanisms, only declarative data flow
 carries the effect; relevance-routed delivery is indistinguishable from its
 absence. Most importantly, the effect is conditional on the model electing to

@@ -1,0 +1,43 @@
+% 图表定义。由 main.tex 用 \input{figures} 引入。
+%
+% ## 形式选择的依据(每图一个"读者要做什么")
+%
+% 1. Pareto 前沿 → 散点 + 前沿连线。任务是"在二维权衡里找非被支配点",
+%    这是散点唯一胜过柱状图的场合;前沿连线把"被支配"变成视觉可判。
+% 2. 条件性效应 → 强调式(emphasis)柱状对比。任务不是"比较两档",而是
+%    "看一个效应在何条件下存在",故一档着色、另一档灰化,而非两个同权重的类别色。
+% 3. 配对差值 → 带置信区间的点线图(forest plot)。任务是"哪些差值跨过 0",
+%    零线是判据,故零线必须是图上最显眼的参考线。
+% 4. λ 扫描交叉 → 双线折线。任务是"排名在何处翻转",交点即答案。
+%
+% ## 颜色
+%
+% 取 dataviz 参考调色板的分类槽位,并已跑验证器:
+%   CVD 最差相邻对 ΔE 24.2(protan)/ 21.6(tritan),远高于 12 的目标线;
+%   对比度检查给出 WARN(低于 3:1),据此**所有系列一律直接标注**——
+%   论文图本就该直接标注,故该约束不增成本。
+% 单色+灰的强调式用于图 2:那里的任务是突出一个条件,不是区分两个类别。
+
+\definecolor{serOne}{HTML}{2A78D6}   % 蓝:主系列 / 前沿
+\definecolor{serTwo}{HTML}{1BAF7A}   % 青:对照系列
+\definecolor{serThree}{HTML}{EDA100} % 黄
+\definecolor{inkMuted}{HTML}{6B6B6B} % 去强调灰
+\definecolor{inkGrid}{HTML}{D9D9D9}  % 网格(退让)
+
+% 所有图共用的退让式坐标轴样式:细线、浅网格、无顶右框。
+\pgfplotsset{
+  paperaxis/.style={
+    width=\linewidth, height=5.0cm,
+    axis lines=left,
+    axis line style={inkMuted, line width=0.5pt},
+    tick label style={font=\footnotesize, color=inkMuted},
+    label style={font=\small},
+    title style={font=\small, align=left},
+    grid=major,
+    grid style={inkGrid, line width=0.3pt},
+    tick align=outside, tick style={inkMuted},
+    legend cell align=left,
+    legend style={font=\footnotesize, draw=none, fill=none},
+  },
+}
+

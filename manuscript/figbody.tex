@@ -1,0 +1,182 @@
+% ── 图 1:质量—成本 Pareto 前沿 ──────────────────────────────────────────────
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[paperaxis,
+  xlabel={Mean tokens per run (thousands)},
+  ylabel={Mean quality},
+  xmin=6, xmax=29, ymin=0.60, ymax=0.82,
+  ytick={0.60,0.65,0.70,0.75,0.80},
+  legend pos=south east,
+]
+% 前沿连线先画,置于散点之下。
+\addplot[serOne, line width=1.2pt, mark=none] coordinates {
+  (8.449,0.6458) (19.834,0.7266) (24.698,0.7422) (25.172,0.7639)
+};
+\addlegendentry{Pareto front}
+
+% 前沿上的点:实心,蓝。
+\addplot[only marks, mark=*, mark size=2.6pt, serOne] coordinates {
+  (8.449,0.6458) (19.834,0.7266) (24.698,0.7422) (25.172,0.7639)
+};
+\addlegendentry{non-dominated}
+
+% 被支配的点:空心,灰 —— 身份不靠颜色单独承担,形状也不同。
+\addplot[only marks, mark=o, mark size=2.6pt, inkMuted] coordinates {
+  (25.825,0.7431) (22.802,0.7188) (20.845,0.6953)
+};
+\addlegendentry{dominated}
+
+% 直接标注(对比度 WARN 要求可见标签;论文图本应如此)。
+\node[font=\scriptsize, anchor=north west] at (axis cs:8.6,0.6458) {A1};
+\node[font=\scriptsize, anchor=north west] at (axis cs:20.0,0.7266) {A3};
+\node[font=\scriptsize, anchor=north east] at (axis cs:24.5,0.7422) {A5$-$deliv};
+\node[font=\scriptsize, anchor=south east] at (axis cs:25.0,0.7700) {A5};
+\node[font=\scriptsize, anchor=north west, inkMuted] at (axis cs:26.0,0.7431) {A2};
+\node[font=\scriptsize, anchor=north west, inkMuted] at (axis cs:23.0,0.7188) {A4};
+\node[font=\scriptsize, anchor=north west, inkMuted] at (axis cs:21.0,0.6953) {A5$-$fanin};
+\end{axis}
+\end{tikzpicture}
+\caption{Quality against cost. Four conditions are non-dominated, so no arm is
+simply better --- this is a genuine trade-off, which is why we treat the front
+as the primary result and the scalarised objective $R$ as a summary. A1 buys
+$0.646$ quality for $8.4$k tokens; reaching $0.764$ costs three times that.}
+\label{fig:pareto}
+\end{figure}
+
+% ── 图 2:条件性效应(强调式)────────────────────────────────────────────────
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[paperaxis, height=4.6cm,
+  ybar, bar width=16pt,
+  symbolic x coords={small, mid, spawned, not spawned},
+  xtick=data,
+  ylabel={Quality},
+  ymin=0, ymax=1.0,
+  ytick={0,0.2,0.4,0.6,0.8,1.0},
+  nodes near coords, nodes near coords style={font=\scriptsize, color=inkMuted},
+  point meta=explicit symbolic,
+  enlarge x limits=0.18,
+]
+% 强调:有效应的条件着色,无效应的灰化。任务是"效应何时存在",
+% 不是"比较四个类别",故用单色+灰而非四个类别色。
+\addplot[fill=inkMuted!25, draw=inkMuted, line width=0.5pt] coordinates {
+  (small,0.6458) [0.646]
+};
+\addplot[fill=serOne!85, draw=serOne, line width=0.5pt] coordinates {
+  (mid,0.8611) [0.861]
+};
+\end{axis}
+\end{tikzpicture}
+
+\vspace{-0.4em}
+\begin{tikzpicture}
+\begin{axis}[paperaxis, height=4.2cm,
+  xbar, bar width=11pt,
+  symbolic y coords={{did not spawn},{spawned}},
+  ytick=data,
+  xlabel={Quality (spawning arms only)},
+  xmin=0, xmax=1.0,
+  nodes near coords, nodes near coords style={font=\scriptsize, color=inkMuted},
+  enlarge y limits=0.55,
+]
+\addplot[fill=inkMuted!25, draw=inkMuted, line width=0.5pt]
+  coordinates {(0.6348,{did not spawn})};
+\addplot[fill=serOne!85, draw=serOne, line width=0.5pt]
+  coordinates {(0.8342,{spawned})};
+\end{axis}
+\end{tikzpicture}
+\caption{The effect is conditional on the orchestrator actually decomposing.
+\emph{Top}: A5 quality by tier --- the small tier, whose orchestrators declined
+to delegate in 94\% of eligible cells, is shaded out because no arm beat the
+baseline there. \emph{Bottom}: regrouping spawning-arm cells by behaviour rather
+than tier. The $0.199$ gap between cells that spawned and cells that did not
+exceeds any difference we measured between arms.}
+\label{fig:conditional}
+\end{figure}
+
+% ── 图 3:配对差值与置信区间(forest plot)──────────────────────────────────
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[paperaxis, height=5.4cm,
+  xlabel={Paired quality difference vs.\ A1 (95\% CI)},
+  symbolic y coords={{A5$-$fanin},{A4},{A3},{A5$-$deliv},{A2},{A5}},
+  ytick=data,
+  xmin=-0.06, xmax=0.23,
+  xtick={-0.05,0,0.05,0.10,0.15,0.20},
+  grid=none,
+]
+% 零线是判据,画成最显眼的参考线。
+\draw[inkMuted, line width=0.8pt, dashed]
+  (axis cs:0,{A5$-$fanin}) -- (axis cs:0,{A5});
+
+% 显著(区间不含 0):蓝、实心。
+\addplot[only marks, mark=*, mark size=2.4pt, serOne,
+  error bars/.cd, x dir=both, x explicit, error bar style={serOne, line width=0.9pt}]
+  coordinates {
+    (0.1181,{A5})        +- (0.0918,0)
+    (0.0972,{A2})        +- (0.0781,0)
+    (0.1094,{A5$-$deliv}) +- (0.0891,0)
+  };
+\addlegendentry{significant}
+
+% 不显著:灰、空心 —— 形状与颜色双编码。
+\addplot[only marks, mark=o, mark size=2.4pt, inkMuted,
+  error bars/.cd, x dir=both, x explicit, error bar style={inkMuted, line width=0.9pt}]
+  coordinates {
+    (0.0859,{A3})          +- (0.0914,0)
+    (0.0703,{A4})          +- (0.0921,0)
+    (0.0469,{A5$-$fanin})  +- (0.0919,0)
+  };
+\addlegendentry{not significant}
+\end{axis}
+\end{tikzpicture}
+\caption{Paired per-instance differences against the single-agent baseline, each
+on the same task, seed and model. Every point is positive, but three intervals
+cross zero. The informative contrast is A5 ($+0.118$) against A5 with fan-in
+disabled ($+0.047$, interval spanning zero): removing declarative data flow
+collapses the effect, while removing relevance-routed delivery
+(A5$-$deliv, $+0.109$) barely moves it.}
+\label{fig:paired}
+\end{figure}
+
+% ── 图 4:λ 扫描下的排名翻转 ────────────────────────────────────────────────
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[paperaxis, height=4.8cm,
+  xlabel={Cost weight $\lambda$ (quality points per 1k tokens)},
+  ylabel={$R = q - \lambda \cdot \mathrm{tokens}$},
+  xmin=0, xmax=0.052,
+  ymin=-0.6, ymax=0.85,
+  xtick={0,0.01,0.02,0.03,0.04,0.05},
+  legend pos=south west,
+]
+\draw[inkMuted, line width=0.5pt] (axis cs:0,0) -- (axis cs:0.052,0);
+
+\addplot[serTwo, line width=1.4pt, mark=square*, mark size=1.9pt] coordinates {
+  (0,0.6458) (0.005,0.6036) (0.01,0.5613) (0.02,0.4769) (0.05,0.2234)
+};
+\addlegendentry{A1 single agent}
+
+\addplot[serOne, line width=1.4pt, mark=*, mark size=2.1pt] coordinates {
+  (0,0.7639) (0.005,0.6380) (0.01,0.5122) (0.02,0.2604) (0.05,-0.4947)
+};
+\addlegendentry{A5 dynamic graph}
+
+% 交点标注:这是本图唯一要传达的结论。
+\draw[inkMuted, dashed, line width=0.5pt]
+  (axis cs:0.0072,-0.6) -- (axis cs:0.0072,0.58);
+\node[font=\scriptsize, anchor=west, align=left] at (axis cs:0.0095,0.72)
+  {crossover $\lambda \approx 0.007$};
+\end{axis}
+\end{tikzpicture}
+\caption{Ranking under the scalarised objective flips almost immediately. With
+cost unweighted A5 leads by $0.118$; by $\lambda \approx 0.007$ --- seven
+thousandths of a quality point per thousand tokens --- the single-agent baseline
+overtakes it and stays ahead. No defensible argument picks a single $\lambda$,
+which is why Figure~\ref{fig:pareto} rather than $R$ carries the result.}
+\label{fig:sweep}
+\end{figure}
