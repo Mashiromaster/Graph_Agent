@@ -63,14 +63,14 @@ a budget ledger that enforces parity by construction rather than by post-hoc
 filtering. Treating the runtime as a measurement instrument, we then ask what
 agent-graph mechanisms actually buy at matched token budget, ablating weighted
 scheduling, budget allocation, cross-generation skip context, and message
-passing as independent toggles with everything else held bit-identical. Across
-118 live cells, decomposition improves quality but costs $2.3$--$3.1\times$ the
-tokens, so the single-agent baseline wins under almost any non-zero cost
-weighting; of the communication mechanisms only declarative data flow carries
-the effect, with relevance-routed delivery indistinguishable from its absence;
-and the whole effect is conditional on the model electing to decompose: on the
-tier whose orchestrators declined to delegate in 94\% of eligible cells, no
-topology arm beat the baseline.
+passing as independent toggles with everything else held bit-identical. Across 118 live cells decomposition improves quality consistently but costs
+$2.3$--$3.1\times$ the tokens, so the baseline wins past a cost weight of
+$0.007$ quality points per thousand tokens; among the communication mechanisms
+only declarative data flow tracks the effect; and the effect is conditional on
+the model electing to decompose, vanishing on the tier whose orchestrators
+declined in 94\% of eligible cells. No individual arm difference survives
+correction for six comparisons, which we report as a power limit rather than
+a null.
 All experiments ship with replay transcripts, so every number can be re-derived
 offline at zero API cost.
 \end{abstract}
@@ -132,16 +132,16 @@ runs afterwards. The single-agent baseline is not a cheaper control; it is the
 same budget spent without decomposing.
 
 Using the runtime as an instrument, we measure what agent-graph mechanisms buy
-at matched budget. Decomposition helps and costs far more than it returns: every
-spawning arm beats the single-agent baseline, but for $2.3$--$3.1\times$ the
-tokens, and the cost-weight crossover sits at $\lambda \approx 0.007$, so the
-baseline wins under almost any non-zero cost weighting. Among the communication
-mechanisms, declarative data flow carries the effect and relevance routing does
-not: disabling \texttt{depends\_on} propagation collapses A5's advantage from
-$+0.118$ to a non-significant $+0.047$, while disabling relevance-routed
-delivery barely moves it. And the effect is conditional on the model choosing to
-decompose --- on the tier whose orchestrators declined to delegate in 94\% of
-eligible cells, no arm beat the baseline.
+at matched budget. Every spawning arm beats the single-agent baseline, but for
+$2.3$--$3.1\times$ the tokens, with the cost-weight crossover at
+$\lambda \approx 0.007$. Among the communication mechanisms, declarative data
+flow tracks the effect and relevance routing does not: disabling
+\texttt{depends\_on} propagation halves A5's advantage from $+0.118$ to
+$+0.047$, while disabling relevance-routed delivery barely moves it. And the
+effect is conditional on the model choosing to decompose --- on the tier whose
+orchestrators declined in 94\% of eligible cells, no arm beat the baseline.
+These are directional: at nine pairs per condition no single arm difference
+survives correction for six comparisons.
 
 That last result is why we report spawn rate beside every quality number. Where
 the orchestrator does not spawn, a topology arm is operationally identical to the
@@ -389,43 +389,28 @@ since the arms that spawn more are the ones that would overspend.
 
 \subsection{Audit chain and resumability}
 
-Every run appends to a hash chain: each event stores the SHA-256 of its own
-canonicalised fields together with its predecessor's hash, starting from a fixed
-genesis value. Verification recomputes the chain, so any edit to a recorded event
-invalidates every hash after it.
+Every run appends to a SHA-256 chain: each event hashes its own canonicalised
+fields together with its predecessor's, so editing a recorded event invalidates
+every hash after it. The chain stores \emph{digests only}, never plaintext,
+which is what lets the audit trail be published without publishing prompts and
+completions. It is also why delivered message content is kept outside the
+snapshot --- an edge stores $\mathrm{sha256}(\mathit{content})$ while the
+content reaches its target through an unsnapshotted buffer, so delivery cannot
+perturb the state digest. Appendix~\ref{app:schemas} gives the event types and
+both checkpoint schemas, and records a limit the design does not overcome: the
+chain detects corruption and in-chain tampering but does not prove provenance.
 
-The chain stores \emph{digests only}, never plaintext. A node's event records the
-hash of its input and output rather than the text, and the controller's events
-record state transitions rather than content. This is what lets the audit trail
-be published alongside a paper without publishing the prompts and completions,
-and it is also why delivered message content is kept outside the snapshot: a
-message edge stores $\mathrm{sha256}(\mathit{content})$, while the content
-itself reaches the target through a buffer that the snapshot projection does not
-include. Delivery therefore cannot perturb the state digest, which we rely on
-when claiming that adding delivery left the checkpoint tests byte-identical.
+Checkpoints come in two versions. V1 is pure snapshot replay --- a static
+function of the chain that never constructs a model, runner or tool. V2 adds a
+resumable slice, so completed nodes are trusted from an archive with no runner,
+no reservation and no re-billing, while a node interrupted mid-execution resets
+to ready. Resume is fail-closed: four pre-validations run before anything is
+built, so a truncated checkpoint is rejected rather than half-loaded.
 
-\paragraph{Two checkpoint schemas.}
-Version 1 is pure snapshot replay: it carries the event chain and a state
-digest, and replay re-verifies the chain, a topology digest, and the snapshot's
-semantic invariants. It is a static function of the chain --- it never touches a
-model, a runner, or a tool --- so verifying a checkpoint costs nothing and
-cannot have side effects.
-
-Version 2 adds a resumable slice: per-node specifications, inputs, tool names
-and reservations, plus the archived results of completed executions. Its first
-six keys are byte-identical to v1, so a v2 checkpoint verifies as a v1
-checkpoint. On resume, completed nodes are trusted from the archive --- records
-rebuilt, results restored, no runner constructed, no reservation taken, no
-re-billing --- while a node interrupted mid-execution is reset to ready and
-re-runs. Resume is fail-closed: four pre-validations run before anything is
-constructed, including that reservations of incomplete nodes sum to the recorded
-reserved total, so a truncated or edited checkpoint is rejected rather than
-half-loaded.
-
-Resumability is not a convenience feature here. The grid in
-§\ref{sec:design} ran for days against a rate-limited endpoint and was
-interrupted repeatedly; without idempotent re-entry keyed on completed cells,
-each interruption would have cost the whole run.
+This is not a convenience feature. The grid in §\ref{sec:design} ran for days
+against a rate-limited endpoint and was interrupted repeatedly; without
+idempotent re-entry keyed on completed cells, each interruption would have cost
+the whole run.
 
 \section{Mechanisms under study}
 \label{sec:mechanisms}
@@ -646,24 +631,39 @@ variance of its own.
 \caption{Quality and cost by condition. Quality scores the whole graph's
 output; see \S\ref{sec:graph-scoring}. Intervals are 95\% CIs on the mean.
 $\Delta$ is the paired per-instance difference against A1 on the same task,
-seed and model.}
+seed and model. Intervals and $t$ are nominal; the Bonferroni threshold for six
+comparisons is $t = 2.64$, which none reaches.}
 \label{tab:main}
 \begin{tabular}{lrrrrl}
 \toprule
-Condition & $n$ & Quality & Tokens & $\Delta$ vs A1 & \\
+Condition & $n$ & Quality & Tokens & $\Delta$ vs A1 & $t$ \\
 \midrule
-A1 single agent      & 18 & $0.646 \pm 0.066$ & 8{,}449  & ---               & baseline \\
-A2 equal-weight tree & 18 & $0.743 \pm 0.073$ & 25{,}825 & $+0.097 \pm 0.078$ & sig. \\
-A3 weighted tree     & 16 & $0.727 \pm 0.093$ & 19{,}834 & $+0.086 \pm 0.091$ & n.s. \\
-A4 skip-connection   & 16 & $0.719 \pm 0.072$ & 22{,}802 & $+0.070 \pm 0.092$ & n.s. \\
-A5 dynamic graph     & 18 & $0.764 \pm 0.068$ & 25{,}172 & $+0.118 \pm 0.092$ & sig. \\
+A1 single agent      & 18 & $0.646 \pm 0.066$ & 8{,}449  & ---               & --- \\
+A2 equal-weight tree & 18 & $0.743 \pm 0.073$ & 25{,}825 & $+0.097 \pm 0.078$ & $2.44$ \\
+A3 weighted tree     & 16 & $0.727 \pm 0.093$ & 19{,}834 & $+0.086 \pm 0.091$ & $1.84$ \\
+A4 skip-connection   & 16 & $0.719 \pm 0.072$ & 22{,}802 & $+0.070 \pm 0.092$ & $1.50$ \\
+A5 dynamic graph     & 18 & $0.764 \pm 0.068$ & 25{,}172 & $+0.118 \pm 0.092$ & $2.52$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Table~\ref{tab:main} and Figure~\ref{fig:paired} show every spawning arm above
-the single-agent baseline, with A5 highest at $+0.118$. Two of the four differences clear their confidence
-intervals. The arms do not separate from each other: the spread among A2--A5
+the single-agent baseline, with A5 highest at $+0.118$.
+
+We state the inferential status carefully, because the uncorrected reading
+overstates it. Three of the six paired comparisons exclude zero at a nominal
+$95\%$ interval, but these are six tests against one baseline, and under a
+Bonferroni correction ($\alpha = .05/6$) \emph{none} survives --- the largest,
+A5, gives $t = 2.52$ against a corrected threshold of $2.64$. A sign test,
+which avoids the normal approximation that an eight-point discrete quality
+scale makes questionable at $n \leq 18$, yields $p = 0.09$ for A5 and
+$p = 0.15$ for A2.
+
+The honest summary is therefore a consistent positive direction --- all six
+arms positive, A5 winning 10 of 13 non-tied pairs --- that this sample size
+cannot establish arm by arm. We report it that way rather than leaning on the
+nominal intervals. The arms do not separate from each other either: the spread
+among A2--A5
 (0.719--0.764) is smaller than the gap from A1 to any of them, and no pairwise
 difference between spawning arms is significant at this sample size. The
 evidence supports ``decomposition helps''; it does not support any ranking among
@@ -770,6 +770,17 @@ It is conditional on the model. We claim zero runtime entropy, not bit-identical
 live runs, and the distinction is load-bearing: a reader who takes the stronger
 reading will find it false at the first temperature-$0.7$ run.
 
+\paragraph{Underpowered for arm-by-arm claims.}
+Nine pairs per condition detects $\delta \approx 0.14$ at $\alpha = .05$ with
+$80\%$ power, and the effects are smaller than that. With six comparisons
+against one baseline, no individual arm difference survives correction. The
+pattern across arms is consistent, and the fan-in ablation is the largest
+contrast, but establishing any single arm effect needs roughly four times the
+cells --- about $500$ at the observed variance. We chose three seeds over five
+because the endpoint's per-minute token quota made the grid take days; that was
+a defensible trade for breadth but it is why the mechanism results are
+directional rather than conclusive.
+
 \paragraph{One task family, one effect size.}
 Measurements come from a single family of decomposable technical briefs, scored
 by keyword coverage. Keyword coverage rewards breadth of mechanism naming and is
@@ -789,15 +800,13 @@ third tier was attempted and excluded (\S\ref{sec:design}), so this gap is known
 rather than overlooked.
 
 \paragraph{Mechanisms we could not separate.}
-No pairwise difference among A2--A5 is significant, so the weight results are
-null: A2, which forces uniform weights, is statistically indistinguishable from
-A3, which lets the model choose them. We report that disjoint weight semantics
-are implementable and auditable, not that any weighting helps. Relevance routing
-is lexical IDF cosine by design, so its null result bounds \emph{this} router
-rather than context routing generally. Trust learning is cross-run and
-role-keyed, which follows from the single-shot node model and cannot be loosened
-without changing it. No learned topology optimiser is included. The
-faulty-agent robustness arm is built but unrun.
+No pairwise difference among A2--A5 approaches significance, so the weight
+results are null rather than negative: A2's forced-uniform weights are
+indistinguishable from A3's model-chosen ones. Relevance routing is lexical by
+design, so its null bounds \emph{this} router, not context routing. Trust
+learning is cross-run and role-keyed, which follows from the single-shot node
+model. No learned topology optimiser is included, and the faulty-agent
+robustness arm is built but unrun.
 
 \paragraph{The code-generation scorer is process isolation, not a sandbox.}
 It executes model-generated code in a separate subprocess with network and
@@ -827,16 +836,13 @@ decompose at all: where it declined, no topology arm beat the baseline, and
 cells that actually spawned outscored those that did not by more than any
 difference between arms.
 
-We think the methodological result is the more durable one. Eight infrastructure
-defects in this project produced data that read as ``multi-agent arms perform
-worse'', each because the arms with more agents and more turns reach any new
-ceiling first --- so the failures arrived sorted by arm complexity, the same
-shape a real topology effect has. One of them would have inverted our headline
-finding. Published without the instrument, any of them would have been a
-plausible, citable, wrong conclusion. That is the case for treating
-reproducibility infrastructure as a result rather than as plumbing, and for
-shipping transcripts so that a reader who doubts a number can recompute it
-instead of trusting us.
+We think the methodological result is the more durable one. Each of the eight
+defects in §\ref{sec:intro} produced data that read as a topology effect,
+because failures arrive sorted by arm complexity; one would have inverted our
+headline finding. Published without the instrument, any of them would have been
+a plausible, citable, wrong conclusion. That is the case for treating
+reproducibility infrastructure as a result rather than plumbing, and for
+shipping transcripts so a reader who doubts a number can recompute it.
 
 % tmlr.bst 而非 plainnat:官方样式自带 bst,混用会导致引用格式与模板不符。
 \label{marker:endbody}

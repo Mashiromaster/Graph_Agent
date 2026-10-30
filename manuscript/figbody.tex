@@ -120,7 +120,7 @@ exceeds any difference we measured between arms.}
     (0.0972,{A2})        +- (0.0781,0)
     (0.1094,{A5$-$deliv}) +- (0.0891,0)
   };
-\addlegendentry{significant}
+\addlegendentry{excludes zero (nominal)}
 
 % 不显著:灰、空心 —— 形状与颜色双编码。
 \addplot[only marks, mark=o, mark size=2.4pt, inkMuted,
@@ -130,12 +130,13 @@ exceeds any difference we measured between arms.}
     (0.0703,{A4})          +- (0.0921,0)
     (0.0469,{A5$-$fanin})  +- (0.0919,0)
   };
-\addlegendentry{not significant}
+\addlegendentry{interval spans zero}
 \end{axis}
 \end{tikzpicture}
 \caption{Paired per-instance differences against the single-agent baseline, each
-on the same task, seed and model. Every point is positive, but three intervals
-cross zero. The informative contrast is A5 ($+0.118$) against A5 with fan-in
+on the same task, seed and model. Intervals are nominal $95\%$; none survives a
+Bonferroni correction for the six comparisons, so the figure shows a consistent
+direction rather than six independent findings. The informative contrast is A5 ($+0.118$) against A5 with fan-in
 disabled ($+0.047$, interval spanning zero): removing declarative data flow
 collapses the effect, while removing relevance-routed delivery
 (A5$-$deliv, $+0.109$) barely moves it.}
